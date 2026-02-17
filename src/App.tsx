@@ -7,8 +7,9 @@ import type {
   TrackedHand,
 } from './vision/handTracker'
 import { PowerSystem } from './powers/powerSystem'
-import type { PowerElement, ThrowSample } from './powers/powerTypes'
+import type { PowerElement } from './powers/powerTypes'
 import { ELEMENT_ORDER } from './powers/presets'
+import { ThrowVelocityTracker } from './vision/motion'
 import {
   QUALITY_PRESETS,
   type QualityPreset,
@@ -43,7 +44,7 @@ type TrackerRuntime = {
 type MouseDebugState = {
   active: boolean
   startedAtMs: number
-  samples: ThrowSample[]
+  tracker: ThrowVelocityTracker
 }
 
 const pickDominantHand = (hands: TrackedHand[]): TrackedHand | null => {
@@ -74,59 +75,6 @@ const resolveRadialHover = (
   const segment = (Math.PI * 2) / ELEMENT_ORDER.length
   const index = Math.floor(normalized / segment) % ELEMENT_ORDER.length
   return ELEMENT_ORDER[index]
-}
-
-const computeThrowVelocity = (
-  samples: ThrowSample[],
-  nowMs: number,
-  speedScale = 1.35,
-): { vx: number; vy: number } => {
-  if (samples.length < 2) {
-    return { vx: 0, vy: -0.35 }
-  }
-
-  const recent: ThrowSample[] = []
-  for (let i = samples.length - 1; i >= 0; i -= 1) {
-    if (nowMs - samples[i].timestampMs > 260) {
-      break
-    }
-    recent.unshift(samples[i])
-  }
-
-  if (recent.length < 2) {
-    return { vx: 0, vy: -0.35 }
-  }
-
-  const first = recent[0]
-  const last = recent[recent.length - 1]
-  const dt = Math.max(0.016, (last.timestampMs - first.timestampMs) / 1000)
-
-  let vx = ((last.point.x - first.point.x) / dt) * speedScale
-  let vy = ((last.point.y - first.point.y) / dt) * speedScale
-
-  const speed = Math.hypot(vx, vy)
-  const maxSpeed = 2.9
-  if (speed > maxSpeed) {
-    const scale = maxSpeed / speed
-    vx *= scale
-    vy *= scale
-  }
-
-  if (speed < 0.24) {
-    vy -= 0.35
-  }
-
-  return {
-    vx: clamp(vx, -3, 3),
-    vy: clamp(vy, -3, 3),
-  }
-}
-
-const pushThrowSample = (buffer: ThrowSample[], x: number, y: number, timestampMs: number): void => {
-  buffer.push({ point: { x, y }, timestampMs })
-  if (buffer.length > 12) {
-    buffer.shift()
-  }
 }
 
 const normalizePointer = (event: PointerEvent): { x: number; y: number } => ({
@@ -200,13 +148,13 @@ const App = () => {
   const gestureEngineRef = useRef<GestureEngine>(new GestureEngine(gestureThresholds))
   const calibrationSessionRef = useRef<CalibrationSession>(new CalibrationSession())
   const powerSystemRef = useRef<PowerSystem>(new PowerSystem())
-  const throwSamplesRef = useRef<ThrowSample[]>([])
+  const throwVelocityRef = useRef<ThrowVelocityTracker>(new ThrowVelocityTracker())
   const pinchWasActiveRef = useRef(false)
   const lastHandSeenAtMsRef = useRef(0)
   const mouseDebugRef = useRef<MouseDebugState>({
     active: false,
     startedAtMs: 0,
-    samples: [],
+    tracker: new ThrowVelocityTracker(16, 320),
   })
 
   const [stream, setStream] = useState<MediaStream | null>(null)
@@ -270,8 +218,7 @@ const App = () => {
         lastHandSeenAtMsRef.current = frame.timestampMs
         setTrackingHint(dominant.lost ? 'Perdi sua mao por um instante. Continue na frente da camera.' : null)
 
-        pushThrowSample(
-          throwSamplesRef.current,
+        throwVelocityRef.current.push(
           mapXWithMirror(dominant.indexTip.x, mirror),
           dominant.indexTip.y,
           frame.timestampMs,
@@ -311,7 +258,7 @@ const App = () => {
 
       if (gesture.events.fistHold) {
         powerSystem.dissipateAll()
-        throwSamplesRef.current = []
+        throwVelocityRef.current.reset()
         pinchWasActiveRef.current = false
         setRadial(false, null, null)
         addLog('info', 'Poderes dissipados por gesto fist hold')
@@ -382,9 +329,9 @@ const App = () => {
       }
 
       if (gesture.events.pinchEnd && powerSystem.hasHeldPower()) {
-        const { vx, vy } = computeThrowVelocity(throwSamplesRef.current, frame.timestampMs)
+        const { vx, vy } = throwVelocityRef.current.estimate(frame.timestampMs, 1.42)
         powerSystem.release(vx, vy)
-        throwSamplesRef.current = []
+        throwVelocityRef.current.reset()
       }
 
       const summary = powerSystem.getSummary()
@@ -550,8 +497,8 @@ const App = () => {
       const mouseState = mouseDebugRef.current
       mouseState.active = true
       mouseState.startedAtMs = nowMs
-      mouseState.samples = []
-      pushThrowSample(mouseState.samples, point.x, point.y, nowMs)
+      mouseState.tracker.reset()
+      mouseState.tracker.push(point.x, point.y, nowMs)
 
       if (!powerSystem.hasHeldPower()) {
         powerSystem.invokeAt('Right', point.x, point.y, nowMs)
@@ -566,7 +513,7 @@ const App = () => {
 
       const nowMs = performance.now()
       const point = normalizePointer(event)
-      pushThrowSample(mouseState.samples, point.x, point.y, nowMs)
+      mouseState.tracker.push(point.x, point.y, nowMs)
       const charge = clamp((nowMs - mouseState.startedAtMs - gestureThresholds.pinchHoldMs) / 900, 0, 1)
       powerSystem.updateHeld(point.x, point.y, charge)
       const summary = powerSystem.getSummary()
@@ -584,11 +531,11 @@ const App = () => {
 
       mouseState.active = false
       const nowMs = performance.now()
-      const velocity = computeThrowVelocity(mouseState.samples, nowMs, 1.5)
+      const velocity = mouseState.tracker.estimate(nowMs, 1.55)
       if (powerSystem.hasHeldPower()) {
         powerSystem.release(velocity.vx, velocity.vy)
       }
-      mouseState.samples = []
+      mouseState.tracker.reset()
       const summary = powerSystem.getSummary()
       setPowerState(summary.holding, summary.charge)
     }
@@ -689,7 +636,7 @@ const App = () => {
     calibrationSessionRef.current.start(performance.now())
     gestureEngineRef.current.reset()
     pinchWasActiveRef.current = false
-    throwSamplesRef.current = []
+    throwVelocityRef.current.reset()
     powerSystem.dissipateAll()
     setRadial(false, null, null)
     setCalibrationState({

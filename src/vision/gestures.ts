@@ -73,6 +73,10 @@ export class GestureEngine {
   private pinchStartedAtMs = 0
   private pinchHoldEmitted = false
   private pinchRatioEma = 1
+  private pinchVelocityEma = 0
+  private pinchEnterFrames = 0
+  private pinchExitFrames = 0
+  private lastUpdateMs = 0
   private openPalmFrames = 0
   private fistFrames = 0
   private openPalmStartedAtMs = 0
@@ -93,6 +97,10 @@ export class GestureEngine {
     this.pinchStartedAtMs = 0
     this.pinchHoldEmitted = false
     this.pinchRatioEma = 1
+    this.pinchVelocityEma = 0
+    this.pinchEnterFrames = 0
+    this.pinchExitFrames = 0
+    this.lastUpdateMs = 0
     this.openPalmFrames = 0
     this.fistFrames = 0
     this.openPalmStartedAtMs = 0
@@ -132,14 +140,54 @@ export class GestureEngine {
     const wrist = lm[INDEX.wrist]
     const middleMcp = lm[INDEX.middleMcp]
     const palmSize = Math.max(distance3D(wrist, middleMcp), 0.03)
+    const frameDtMs = this.lastUpdateMs ? clamp(nowMs - this.lastUpdateMs, 8, 80) : 16
+    this.lastUpdateMs = nowMs
 
     const pinchDistance = distance3D(lm[INDEX.thumbTip], lm[INDEX.indexTip])
     const pinchRatio = pinchDistance / palmSize
-    this.pinchRatioEma = this.pinchRatioEma * 0.55 + pinchRatio * 0.45
+    const pinchVelocity = (pinchRatio - this.pinchRatioEma) / Math.max(0.016, frameDtMs / 1000)
+    this.pinchVelocityEma = this.pinchVelocityEma * 0.62 + pinchVelocity * 0.38
+    this.pinchRatioEma = this.pinchRatioEma * 0.62 + pinchRatio * 0.38
+
+    const stability = clamp(
+      hand.confidence * 0.72 + (1 - clamp(hand.staleMs / 260, 0, 1)) * 0.28,
+      0.42,
+      1,
+    )
+    const adaptivePinch = resolveAdaptivePinchThresholds(this.thresholds, stability)
 
     let pinch = this.pinchActive
-      ? this.pinchRatioEma < this.thresholds.pinchExit
-      : this.pinchRatioEma < this.thresholds.pinchEnter
+    if (!this.pinchActive) {
+      const entering = this.pinchRatioEma < adaptivePinch.enter && this.pinchVelocityEma < 1.24
+      this.pinchEnterFrames = entering ? this.pinchEnterFrames + 1 : 0
+      if (this.pinchEnterFrames >= 2) {
+        this.pinchActive = true
+        this.pinchStartedAtMs = nowMs
+        this.pinchHoldEmitted = false
+        this.pinchExitFrames = 0
+        pinch = true
+      } else {
+        pinch = false
+      }
+    } else {
+      const exiting = this.pinchRatioEma > adaptivePinch.exit || this.pinchVelocityEma > 2.36
+      this.pinchExitFrames = exiting ? this.pinchExitFrames + 1 : 0
+      if (this.pinchExitFrames >= 2) {
+        const duration = nowMs - this.pinchStartedAtMs
+        if (!this.pinchHoldEmitted && duration <= this.thresholds.pinchTapMaxMs) {
+          events.pinchTap = true
+        }
+        events.pinchEnd = true
+        this.pinchActive = false
+        this.pinchStartedAtMs = 0
+        this.pinchHoldEmitted = false
+        this.pinchEnterFrames = 0
+        this.pinchExitFrames = 0
+        pinch = false
+      } else {
+        pinch = true
+      }
+    }
 
     const indexExtended = fingerExtended(lm[INDEX.indexTip], lm[INDEX.indexPip], lm[INDEX.indexMcp], wrist)
     const middleExtended = fingerExtended(
@@ -167,31 +215,18 @@ export class GestureEngine {
     const openPalmCandidate = extendedCount >= 4 && !pinch
     const fistCandidate = extendedCount <= 1 && !pinch
 
-    this.openPalmFrames = openPalmCandidate ? Math.min(6, this.openPalmFrames + 1) : 0
-    this.fistFrames = fistCandidate ? Math.min(6, this.fistFrames + 1) : 0
+    this.openPalmFrames = openPalmCandidate ? Math.min(8, this.openPalmFrames + 1) : 0
+    this.fistFrames = fistCandidate ? Math.min(8, this.fistFrames + 1) : 0
 
-    const openPalm = this.openPalmFrames >= 2
-    const fist = this.fistFrames >= 2
+    const frameGate = hand.confidence < 0.55 || hand.staleMs > 60 ? 3 : 2
+    const openPalm = this.openPalmFrames >= frameGate
+    const fist = this.fistFrames >= frameGate
 
-    if (pinch && !this.pinchActive) {
-      this.pinchActive = true
-      this.pinchStartedAtMs = nowMs
-      this.pinchHoldEmitted = false
-    } else if (pinch && this.pinchActive) {
-      if (!this.pinchHoldEmitted && nowMs - this.pinchStartedAtMs >= this.thresholds.pinchHoldMs) {
+    if (this.pinchActive && !this.pinchHoldEmitted) {
+      if (nowMs - this.pinchStartedAtMs >= this.thresholds.pinchHoldMs) {
         this.pinchHoldEmitted = true
         events.pinchHoldStart = true
       }
-    } else if (!pinch && this.pinchActive) {
-      const duration = nowMs - this.pinchStartedAtMs
-      if (!this.pinchHoldEmitted && duration <= this.thresholds.pinchTapMaxMs) {
-        events.pinchTap = true
-      }
-      events.pinchEnd = true
-      this.pinchActive = false
-      this.pinchStartedAtMs = 0
-      this.pinchHoldEmitted = false
-      pinch = false
     }
 
     if (openPalm) {
@@ -364,6 +399,20 @@ const resolveGestureLabel = (
     return 'FIST'
   }
   return 'IDLE'
+}
+
+const resolveAdaptivePinchThresholds = (
+  thresholds: GestureThresholds,
+  stability: number,
+): { enter: number; exit: number } => {
+  const instability = 1 - clamp(stability, 0, 1)
+  const enter = clamp(thresholds.pinchEnter * (1 + instability * 0.2), 0.18, 0.58)
+  const exit = clamp(
+    thresholds.pinchExit * (1 + instability * 0.16),
+    enter + 0.04,
+    0.72,
+  )
+  return { enter, exit }
 }
 
 const fingerExtended = (

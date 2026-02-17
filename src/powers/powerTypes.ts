@@ -17,6 +17,8 @@ export type PowerProjectile = {
   element: PowerElement
   x: number
   y: number
+  prevX: number
+  prevY: number
   vx: number
   vy: number
   radius: number
@@ -24,9 +26,14 @@ export type PowerProjectile = {
   life: number
   maxLife: number
   bounces: number
+  rotation: number
+  spin: number
+  seed: number
+  trailAccumulator: number
 }
 
 export type ParticleShape = 'circle' | 'square' | 'line'
+export type ParticleBlend = GlobalCompositeOperation
 
 export type Particle = {
   active: boolean
@@ -42,6 +49,10 @@ export type Particle = {
   drag: number
   shape: ParticleShape
   rotation: number
+  spin: number
+  sizeDecay: number
+  gravity: number
+  blend: ParticleBlend
 }
 
 export type ParticleSpawn = {
@@ -56,6 +67,10 @@ export type ParticleSpawn = {
   drag?: number
   shape?: ParticleShape
   rotation?: number
+  spin?: number
+  sizeDecay?: number
+  gravity?: number
+  blend?: ParticleBlend
 }
 
 export type SpawnParticle = (entry: ParticleSpawn) => void
@@ -81,6 +96,8 @@ export type ElementPreset = {
     width: number,
     height: number,
   ) => void
+  emitCast?: (power: HeldPower, spawn: SpawnParticle) => void
+  emitRelease?: (projectile: PowerProjectile, spawn: SpawnParticle) => void
   emitTrail: (projectile: PowerProjectile, spawn: SpawnParticle, nowMs: number) => void
   emitImpact: (projectile: PowerProjectile, spawn: SpawnParticle) => void
 }

@@ -86,8 +86,9 @@ describe('GestureEngine', () => {
 
     engine.update(createHand('pinch'), 0)
     engine.update(createHand('pinch'), 40)
-    const holdFrame = engine.update(createHand('pinch'), 420)
-    const releaseFrames = [520, 560, 600, 640, 680].map((time) =>
+    engine.update(createHand('pinch'), 80)
+    const holdFrame = engine.update(createHand('pinch'), 470)
+    const releaseFrames = [560, 600, 640, 680, 720].map((time) =>
       engine.update(createHand('open'), time),
     )
     const releaseFrame = releaseFrames.find((entry) => entry.events.pinchEnd)

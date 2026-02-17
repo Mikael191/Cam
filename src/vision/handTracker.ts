@@ -54,6 +54,7 @@ type SlotState = {
   filters: LandmarkFilterSet
   lastSeenAtMs: number
   lastPalm: { x: number; y: number } | null
+  lastRawPalm: { x: number; y: number } | null
   smoothed: HandLandmark[] | null
   raw: HandLandmark[] | null
   scoreHistory: number[]
@@ -72,6 +73,7 @@ const createSlot = (id: 0 | 1): SlotState => ({
   filters: new LandmarkFilterSet(),
   lastSeenAtMs: 0,
   lastPalm: null,
+  lastRawPalm: null,
   smoothed: null,
   raw: null,
   scoreHistory: [],
@@ -235,10 +237,37 @@ export class HandTracker {
         continue
       }
       const detection = detections[assignedIndex]
+      const rawPalm = detection.landmarks[0]
+      const palmSpeed = slot.lastRawPalm
+        ? distance2D(slot.lastRawPalm, rawPalm) / Math.max(dt, 1 / 120)
+        : 0
+      slot.lastRawPalm = { x: rawPalm.x, y: rawPalm.y }
+
+      const handScale = Math.max(distance2D(detection.landmarks[0], detection.landmarks[9]), 0.035)
+      const jump = slot.lastPalm ? distance2D(slot.lastPalm, rawPalm) : 0
+      const jumpRatio = handScale > 0 ? jump / handScale : 0
+      const likelyOutlier = Boolean(
+        slot.lastPalm &&
+          (jumpRatio > 4.2 || jump > 0.35) &&
+          detection.score < 0.84,
+      )
+      if (likelyOutlier) {
+        pushFixed(slot.scoreHistory, Math.max(0.2, detection.score * 0.82), 8)
+        continue
+      }
+
+      const adaptiveJump = clamp(
+        0.12 + palmSpeed * 0.017 + (1 - detection.score) * 0.1,
+        0.1,
+        0.31,
+      )
+
       slot.raw = detection.landmarks
-      slot.smoothed = slot.filters.filterLandmarks(detection.landmarks, dt, 0.18)
+      slot.smoothed = slot.filters.filterLandmarks(detection.landmarks, dt, adaptiveJump)
       slot.lastSeenAtMs = nowMs
-      slot.lastPalm = slot.smoothed[0] ? { x: slot.smoothed[0].x, y: slot.smoothed[0].y } : slot.lastPalm
+      slot.lastPalm = slot.smoothed[0]
+        ? { x: slot.smoothed[0].x, y: slot.smoothed[0].y }
+        : slot.lastPalm
       pushFixed(slot.scoreHistory, detection.score, 8)
       pushFixed(slot.handednessVotes, detection.handedness, 10)
       slot.stableHandedness = majorityLabel(slot.handednessVotes, slot.stableHandedness)
@@ -254,12 +283,14 @@ export class HandTracker {
         continue
       }
       const bbox = computeBoundingBox(slot.smoothed)
+      const freshness = clamp(1 - staleMs / Math.max(120, hysteresisMs), 0.5, 1)
+      const confidence = clamp(median(slot.scoreHistory) * freshness, 0, 1)
       output.push({
         slotId: slot.id,
         handedness: slot.stableHandedness,
-        confidence: clamp(median(slot.scoreHistory), 0, 1),
+        confidence,
         staleMs,
-        lost: staleMs > 0,
+        lost: staleMs > 42,
         landmarks: slot.smoothed,
         rawLandmarks: slot.raw,
         palm: { x: slot.smoothed[0].x, y: slot.smoothed[0].y },
@@ -331,6 +362,7 @@ export class HandTracker {
       slot.filters.reset()
       slot.lastSeenAtMs = 0
       slot.lastPalm = null
+      slot.lastRawPalm = null
       slot.raw = null
       slot.smoothed = null
       slot.scoreHistory = []
