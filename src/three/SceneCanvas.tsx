@@ -64,25 +64,6 @@ export const SceneCanvas = () => {
 
     const worldSize = state.worldSize
 
-    const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(worldSize.x, worldSize.z),
-      new THREE.MeshStandardMaterial({
-        color: '#0b1420',
-        transparent: true,
-        opacity: 0.24,
-        roughness: 0.95,
-        metalness: 0.04,
-      }),
-    )
-    ground.rotation.x = -Math.PI / 2
-    ground.receiveShadow = true
-    scene.add(ground)
-
-    const grid = new THREE.GridHelper(worldSize.x, worldSize.x, '#2c3f58', '#1a2330')
-    ;(grid.material as THREE.Material).opacity = 0.4
-    ;(grid.material as THREE.Material).transparent = true
-    scene.add(grid)
-
     const instanced = new InstancedVoxels(worldSize, MAX_INSTANCES)
     scene.add(instanced.mesh)
 

@@ -8,8 +8,8 @@ import type { TrackerFrame } from '../vision/handTracker'
 import { EmaSmoother2D } from '../vision/smoothing'
 import { useVoxelStore } from '../world/voxelStore'
 
-const ERASER_RATE_LIMIT_MS = 80
-const BUILD_RATE_LIMIT_MS = 80
+const ACTION_RATE_LIMIT_MS = 80
+const HOLD_ACTION_DELAY_MS = 210
 
 const App = () => {
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -17,10 +17,10 @@ const App = () => {
   const trackerRef = useRef<HandTracker | null>(null)
   const gestureEngineRef = useRef(new GestureEngine())
   const pointerSmootherRef = useRef(new EmaSmoother2D(0.42))
-  const lastFistEraseRef = useRef(0)
-  const lastBuildRef = useRef(0)
+  const lastActionRef = useRef(0)
 
   const settings = useVoxelStore((state) => state.settings)
+  const mode = useVoxelStore((state) => state.mode)
 
   useEffect(() => {
     useVoxelStore.getState().refreshSnapshots()
@@ -155,15 +155,30 @@ const App = () => {
         clearOverlay()
       }
 
-      if (gesture.pinch && frame.timestampMs - lastBuildRef.current > BUILD_RATE_LIMIT_MS) {
-        if (store.placeAtCursor()) {
-          lastBuildRef.current = frame.timestampMs
+      if (gesture.events.openPalmHold) {
+        const nextMode = store.mode === 'erase' ? 'build' : 'erase'
+        store.setMode(nextMode)
+      }
+
+      if (gesture.events.pinchTap) {
+        if (store.mode === 'erase') {
+          store.eraseAtCursor()
+        } else {
+          store.placeAtCursor()
         }
       }
 
-      if (gesture.fist && frame.timestampMs - lastFistEraseRef.current > ERASER_RATE_LIMIT_MS) {
-        if (store.eraseAtCursor()) {
-          lastFistEraseRef.current = frame.timestampMs
+      if (
+        gesture.pinch &&
+        gesture.pinchDurationMs >= HOLD_ACTION_DELAY_MS &&
+        frame.timestampMs - lastActionRef.current > ACTION_RATE_LIMIT_MS
+      ) {
+        if (store.mode === 'erase') {
+          if (store.eraseAtCursor()) {
+            lastActionRef.current = frame.timestampMs
+          }
+        } else if (store.placeAtCursor()) {
+          lastActionRef.current = frame.timestampMs
         }
       }
     }
@@ -223,6 +238,12 @@ const App = () => {
         style={{ transform: settings.mirrorInput ? 'scaleX(-1)' : undefined }}
       />
       <SceneCanvas />
+      <div className="pointer-events-none absolute left-3 top-3 rounded-lg bg-black/45 px-3 py-2 text-xs text-slate-100">
+        <p>
+          Modo: <span className="font-semibold">{mode.toUpperCase()}</span>
+        </p>
+        <p>Pinch: acao | Open palm hold: alterna build/erase</p>
+      </div>
     </main>
   )
 }
