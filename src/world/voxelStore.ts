@@ -136,9 +136,9 @@ const initialVoxels = restored?.voxels ?? {}
 
 const initialSettings: StoreSettings = {
   showWebcam: true,
-  showLandmarks: true,
+  showLandmarks: false,
   quality: 'medium',
-  mouseFallback: true,
+  mouseFallback: false,
   mirrorInput: true,
   webcamWidth: qualityDefaults.webcamWidth,
   webcamHeight: qualityDefaults.webcamHeight,

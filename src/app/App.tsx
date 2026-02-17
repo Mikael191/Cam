@@ -1,10 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { SceneCanvas } from '../three/SceneCanvas'
-import { ModeBar } from '../ui/ModeBar'
-import { Panels } from '../ui/Panels'
-import { RadialMenu } from '../ui/RadialMenu'
-import { pickModeFromPointer } from '../ui/radialUtils'
-import { TutorialModal } from '../ui/TutorialModal'
 import { toNdc } from '../utils/math'
 import { throttle } from '../utils/throttle'
 import { GestureEngine } from '../vision/gestures'
@@ -13,7 +8,8 @@ import type { TrackerFrame } from '../vision/handTracker'
 import { EmaSmoother2D } from '../vision/smoothing'
 import { useVoxelStore } from '../world/voxelStore'
 
-const ERASER_RATE_LIMIT_MS = 90
+const ERASER_RATE_LIMIT_MS = 80
+const BUILD_RATE_LIMIT_MS = 80
 
 const App = () => {
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -22,18 +18,14 @@ const App = () => {
   const gestureEngineRef = useRef(new GestureEngine())
   const pointerSmootherRef = useRef(new EmaSmoother2D(0.42))
   const lastFistEraseRef = useRef(0)
-  const textHoldRef = useRef(false)
-  const [trackerNonce, setTrackerNonce] = useState(0)
+  const lastBuildRef = useRef(0)
 
   const settings = useVoxelStore((state) => state.settings)
-
-  const requestTrackerRestart = useCallback(() => {
-    setTrackerNonce((value) => value + 1)
-  }, [])
 
   useEffect(() => {
     useVoxelStore.getState().refreshSnapshots()
     useVoxelStore.getState().loadLiveScene()
+    useVoxelStore.getState().setMode('build')
 
     const persist = throttle(() => {
       useVoxelStore.getState().saveLiveScene()
@@ -70,16 +62,6 @@ const App = () => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'y') {
         event.preventDefault()
         store.redo()
-        return
-      }
-      if (event.key === '1') {
-        store.setMode('build')
-      } else if (event.key === '2') {
-        store.setMode('erase')
-      } else if (event.key === '3') {
-        store.setMode('move')
-      } else if (event.key === '4') {
-        store.setMode('text')
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -132,7 +114,6 @@ const App = () => {
 
       if (!primary) {
         pointerSmoother.reset()
-        textHoldRef.current = false
         store.setPointer({
           x: store.pointer.x,
           y: store.pointer.y,
@@ -174,61 +155,16 @@ const App = () => {
         clearOverlay()
       }
 
-      if (gesture.events.openPalmHold) {
-        store.setRadialOpen(true)
-      }
-
-      if (store.radialOpen && gesture.events.pinchTap) {
-        const mode = pickModeFromPointer(store.pointer)
-        if (mode) {
-          store.setMode(mode)
-        }
-        store.setRadialOpen(false)
-        return
-      }
-
-      if (store.mode === 'build' && gesture.events.pinchTap) {
-        store.placeAtCursor()
-      }
-
-      if (store.mode === 'erase') {
-        if (gesture.events.pinchTap) {
-          store.eraseAtCursor()
-        }
-        if (gesture.fist && frame.timestampMs - lastFistEraseRef.current > ERASER_RATE_LIMIT_MS) {
-          if (store.eraseAtCursor()) {
-            lastFistEraseRef.current = frame.timestampMs
-          }
+      if (gesture.pinch && frame.timestampMs - lastBuildRef.current > BUILD_RATE_LIMIT_MS) {
+        if (store.placeAtCursor()) {
+          lastBuildRef.current = frame.timestampMs
         }
       }
 
-      if (store.mode === 'move') {
-        if (gesture.events.pinchHoldStart) {
-          store.beginMoveDragFromHover()
+      if (gesture.fist && frame.timestampMs - lastFistEraseRef.current > ERASER_RATE_LIMIT_MS) {
+        if (store.eraseAtCursor()) {
+          lastFistEraseRef.current = frame.timestampMs
         }
-        if (gesture.pinch && store.moveDragFrom) {
-          store.updateMoveDragTargetFromCursor()
-        }
-        if (gesture.events.pinchEnd && store.moveDragFrom) {
-          store.commitMoveDrag()
-        }
-      }
-
-      if (store.mode === 'text') {
-        if (gesture.events.pinchTap) {
-          store.stampTextAtCursor()
-        }
-        if (gesture.events.pinchHoldStart) {
-          textHoldRef.current = true
-        }
-        if (gesture.events.pinchEnd && textHoldRef.current) {
-          store.stampTextAtCursor()
-          textHoldRef.current = false
-        }
-      }
-
-      if (gesture.events.pinchEnd) {
-        textHoldRef.current = false
       }
     }
 
@@ -265,13 +201,7 @@ const App = () => {
       pointerSmoother.reset()
       void tracker.stop()
     }
-  }, [
-    trackerNonce,
-    settings.inferenceFps,
-    settings.webcamWidth,
-    settings.webcamHeight,
-    settings.mirrorInput,
-  ])
+  }, [settings.inferenceFps, settings.webcamWidth, settings.webcamHeight, settings.mirrorInput])
 
   useEffect(() => {
     return () => {
@@ -281,17 +211,18 @@ const App = () => {
   }, [])
 
   return (
-    <main className="relative h-screen w-screen overflow-hidden">
-      <SceneCanvas />
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-[#00000066] via-transparent to-[#00000033]" />
-      <ModeBar />
-      <Panels
-        videoRef={videoRef}
-        overlayCanvasRef={overlayCanvasRef}
-        onEnableCamera={requestTrackerRestart}
+    <main className="relative h-screen w-screen overflow-hidden bg-black">
+      <video
+        ref={videoRef}
+        className="absolute inset-0 h-full w-full object-cover"
+        style={{ transform: settings.mirrorInput ? 'scaleX(-1)' : undefined }}
       />
-      <RadialMenu />
-      <TutorialModal onEnableCamera={requestTrackerRestart} />
+      <canvas
+        ref={overlayCanvasRef}
+        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+        style={{ transform: settings.mirrorInput ? 'scaleX(-1)' : undefined }}
+      />
+      <SceneCanvas />
     </main>
   )
 }

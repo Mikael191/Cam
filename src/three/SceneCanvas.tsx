@@ -22,12 +22,12 @@ export const SceneCanvas = () => {
 
     const state = useVoxelStore.getState()
     const scene = new THREE.Scene()
-    scene.background = new THREE.Color('#060b12')
-    scene.fog = new THREE.Fog('#060b12', 40, 150)
+    scene.background = null
 
     const renderer = new THREE.WebGLRenderer({
       antialias: true,
       powerPreference: 'high-performance',
+      alpha: true,
     })
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.6))
     renderer.setSize(host.clientWidth, host.clientHeight)
@@ -68,6 +68,8 @@ export const SceneCanvas = () => {
       new THREE.PlaneGeometry(worldSize.x, worldSize.z),
       new THREE.MeshStandardMaterial({
         color: '#0b1420',
+        transparent: true,
+        opacity: 0.24,
         roughness: 0.95,
         metalness: 0.04,
       }),
@@ -77,7 +79,7 @@ export const SceneCanvas = () => {
     scene.add(ground)
 
     const grid = new THREE.GridHelper(worldSize.x, worldSize.x, '#2c3f58', '#1a2330')
-    ;(grid.material as THREE.Material).opacity = 0.65
+    ;(grid.material as THREE.Material).opacity = 0.4
     ;(grid.material as THREE.Material).transparent = true
     scene.add(grid)
 
