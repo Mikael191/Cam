@@ -29,10 +29,37 @@ body,
 
 body {
   font-family: 'Space Grotesk', ui-sans-serif, system-ui;
+  user-select: none;
 }
 
 button,
 select,
 input {
   font: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid rgba(125, 211, 252, 0.92);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: rgba(94, 194, 255, 0.35);
+  color: #f2f9ff;
+}
+
+.gesture-icon {
+  animation: tutorial-float 2.4s ease-in-out infinite;
+}
+
+@keyframes tutorial-float {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.9;
+  }
+  50% {
+    transform: translateY(-2px);
+    opacity: 1;
+  }
 }

@@ -1,6 +1,24 @@
 # HAND AR POWERS
 
-Aplicacao web front-end que usa webcam + hand tracking no navegador para invocar, carregar e lancar poderes elementais em tempo real.
+Aplicacao web de computer vision no navegador para invocar, carregar e lancar poderes elementais usando apenas a webcam e gestos de mao.
+
+## Principais destaques
+
+- Webcam fullscreen com overlay de efeitos em tempo real.
+- Hand tracking com MediaPipe Tasks Vision (modo VIDEO) + smoothing One Euro + outlier rejection.
+- Gestos robustos com state machine e hysteresis:
+  - `PINCH TAP`: invocar/soltar rapido
+  - `PINCH HOLD`: segurar/carregar
+  - `OPEN PALM HOLD`: abrir menu radial
+  - `FIST HOLD`: cancelar/dissipar
+- Pipeline de calibracao rapido:
+  - mao aberta por 2s
+  - pinch 2x para ajustar thresholds
+- 6 elementos com identidade visual:
+  - fogo, gelo, raio, agua, vento e terra
+- Fallback profissional de QA/acessibilidade:
+  - modo mouse/teclado com atalhos
+  - smoke E2E em modo mock sem camera fisica
 
 ## Stack
 
@@ -8,29 +26,9 @@ Aplicacao web front-end que usa webcam + hand tracking no navegador para invocar
 - TailwindCSS
 - Zustand
 - MediaPipe Tasks Vision (`@mediapipe/tasks-vision`)
-- Canvas2D para efeitos em screen-space (sem mundo 3D navegavel)
-
-## O que o app faz
-
-- Video da webcam em fullscreen.
-- Detecta 1-2 maos com suavizacao (One Euro) e hysteresis de perda curta.
-- Gestos com state machine:
-  - `PINCH`: invocar/segurar/carregar/soltar
-  - `OPEN PALM HOLD`: abre menu radial para escolher elemento
-  - `FIST HOLD`: dissipar/cancelar
-- 6 elementos com identidade visual:
-  - Fogo, Gelo, Raio, Agua, Vento, Terra
-- Lancamento com velocidade real baseada no movimento do indicador (janela de amostras).
-- Colisao com bordas: quica 1x e dissipa.
-- Fluxo de calibracao:
-  - mao aberta por 2s
-  - pinch 2x
-- UI minimalista:
-  - indicador do elemento
-  - toggles debug/mini preview/espelho
-  - qualidade (Low/Med/High)
-  - delegate (GPU/CPU)
-  - sliders de confianca
+- Canvas2D para efeitos screen-space
+- Vitest (unit)
+- Playwright (smoke e2e)
 
 ## Estrutura
 
@@ -39,105 +37,123 @@ src/
   App.tsx
   main.tsx
   index.css
+  core/
+    appStore.ts
+    logger.ts
   vision/
+    handGeometry.ts
     handTracker.ts
+    mockTracker.ts
     filters.ts
     gestures.ts
+    gestures.test.ts
   powers/
     powerTypes.ts
     powerSystem.ts
     presets/
-      index.ts
       fire.ts
       ice.ts
       lightning.ts
       water.ts
       wind.ts
       earth.ts
+      index.ts
   render/
     VideoLayer.tsx
     EffectsCanvas.tsx
   ui/
+    PermissionScreen.tsx
     HUD.tsx
     RadialMenu.tsx
     TutorialModal.tsx
     CalibrateModal.tsx
-  store/
-    appStore.ts
   utils/
     math.ts
     throttle.ts
     time.ts
+tests/
+  app.smoke.spec.ts
 ```
 
-## Requisitos
-
-- Node.js 20+
-- Navegador moderno com webcam habilitada
-- HTTPS ou `localhost` para permissao de camera
-
-## Comandos
+## Como rodar
 
 ```bash
 npm i
 npm run dev
-npm run build
-npm run preview
 ```
 
-Opcional:
+## Build e qualidade
 
 ```bash
 npm run lint
-npm run format
+npm run build
+npm run test:unit
+npm run test:e2e
+npm run test
 ```
 
-## Como usar
+## Uso (fluxo recomendado)
 
-1. Rode `npm run dev`.
-2. Abra no navegador e permita acesso da camera.
-3. Clique em `Calibrar` para ajustar thresholds ao seu tamanho de mao.
-4. Gestos:
-   - Abra a mao (hold) para abrir menu radial e escolher elemento.
-   - Belisque (indicador + dedao) para invocar o orb.
-   - Segure o belisco para carregar.
+1. Abra o app e clique em **Ativar camera**.
+2. Rode **Calibrar** (mao aberta 2s + pinch 2x).
+3. Use os gestos:
+   - Abra a mao (hold) para escolher elemento no radial.
+   - Pinch para invocar.
+   - Segure pinch para carregar.
    - Solte para lancar.
-   - Feche o punho (hold) para dissipar tudo.
+   - Feche punho (hold) para cancelar.
+
+## Fallback mouse/teclado (Debug Input)
+
+Ative `Mouse/Teclado` no HUD:
+
+- Mouse esquerdo: invocar/segurar/soltar
+- Mouse direito: dissipar
+- Teclas `1..6`: trocar elemento
+- Tecla `X`: dissipar
+- Tecla `H`: abrir tutorial
+- Tecla `L`: abrir/fechar logs
+
+## Feature flags
+
+- `VITE_MOCK_HANDS=1`
+
+Usa tracker mock sem camera real (ideal para QA e E2E).
 
 ## Performance
 
-- Default em `Low` (640x360, inferencia 24fps).
-- Render roda separado da inferencia.
-- Limites internos:
-  - ate 50 projeteis ativos
-  - pool de ate 6000 particulas
-- Recomendacoes para PC fraco:
-  - manter `Low`
-  - desligar `Debug`
-  - desligar `Mini preview`
-  - usar delegate `GPU` quando disponivel
+- Inferencia desacoplada do render:
+  - inferencia 24-30fps (qualidade Low/Med/High)
+  - render ate 60fps
+- Lazy load do tracker/modelo apos clicar em **Ativar camera**
+- Pool de particulas com limite fixo
+- Grace period de 250ms para perda curta de tracking (sem teleporte)
 
-## Troubleshooting
+## Seguranca e deploy
 
-- `Nao foi possivel iniciar camera`:
-  - confirme permissao de webcam no browser/OS
-  - use `localhost` ou HTTPS
-- Tracking instavel:
-  - ilumine melhor o ambiente
-  - aproxime a mao da camera
-  - rode calibracao novamente
-  - ajuste sliders de confidence
-- GPU indisponivel:
-  - app troca para CPU automaticamente
+- Metadados completos (title, description, OG, favicon).
+- Headers de seguranca em `vite.config.ts` (dev/preview) e `vercel.json` (deploy):
+  - CSP
+  - Permissions-Policy (camera)
+  - Referrer-Policy
+  - X-Content-Type-Options
 
-## Deploy no Vercel (Vite estatico)
+### Deploy na Vercel (Vite estatico)
 
-1. Suba o repo para o GitHub.
-2. No Vercel, `Add New Project` e selecione o repo.
-3. Configuracao:
+1. Conecte o repositorio na Vercel.
+2. Configure:
    - Framework Preset: `Vite`
    - Build Command: `npm run build`
    - Output Directory: `dist`
-4. Deploy.
+3. Deploy.
 
-Tambem pode hospedar `dist/` em qualquer host estatico.
+## Troubleshooting
+
+- **Permissao negada**: libere camera no navegador e tente novamente.
+- **Camera ocupada**: feche apps/abas que usam webcam.
+- **Tracking instavel**: melhore iluminacao, aproxime a mao e rode calibracao.
+- **FPS baixo**: use qualidade `Low`, desligue `Debug landmarks` e `Mini preview`.
+
+## Privacidade
+
+O video e processado localmente no navegador. O app nao envia stream de camera para backend.

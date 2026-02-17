@@ -9,13 +9,21 @@ const TutorialModal = ({ open, onClose }: TutorialModalProps) => {
   }
 
   return (
-    <div className="absolute inset-0 z-[70] flex items-center justify-center bg-black/72 p-4 backdrop-blur-sm">
+    <div
+      className="absolute inset-0 z-[70] flex items-center justify-center bg-black/72 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="tutorial-title"
+      data-ui-control="true"
+    >
       <div className="w-full max-w-xl rounded-2xl border border-white/15 bg-panel p-6 text-white shadow-premium">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold tracking-wide">Tutorial de Gestos</h2>
+          <h2 id="tutorial-title" className="text-lg font-semibold tracking-wide">
+            Tutorial de Gestos
+          </h2>
           <button
             onClick={onClose}
-            className="rounded-lg border border-white/20 px-3 py-1 text-xs text-white/80 hover:bg-white/10"
+            className="rounded-lg border border-white/20 px-3 py-1 text-xs text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/80"
           >
             Fechar
           </button>
@@ -23,7 +31,9 @@ const TutorialModal = ({ open, onClose }: TutorialModalProps) => {
 
         <div className="space-y-4 text-sm text-white/85">
           <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-black/20 p-3">
-            <GestureIcon type="open" />
+            <div className="gesture-icon">
+              <GestureIcon type="open" />
+            </div>
             <div>
               <div className="font-medium">Abra a mao para escolher elemento</div>
               <div className="text-white/65">Mantenha aberta por ~600ms para abrir o menu radial.</div>
@@ -31,7 +41,9 @@ const TutorialModal = ({ open, onClose }: TutorialModalProps) => {
           </div>
 
           <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-black/20 p-3">
-            <GestureIcon type="pinch" />
+            <div className="gesture-icon">
+              <GestureIcon type="pinch" />
+            </div>
             <div>
               <div className="font-medium">Belisque para invocar</div>
               <div className="text-white/65">Junte indicador + dedao para criar o orb na sua mao.</div>
@@ -39,7 +51,9 @@ const TutorialModal = ({ open, onClose }: TutorialModalProps) => {
           </div>
 
           <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-black/20 p-3">
-            <GestureIcon type="hold" />
+            <div className="gesture-icon">
+              <GestureIcon type="hold" />
+            </div>
             <div>
               <div className="font-medium">Segure o belisco para carregar</div>
               <div className="text-white/65">A energia cresce ate o limite enquanto o pinch continua.</div>
@@ -47,7 +61,9 @@ const TutorialModal = ({ open, onClose }: TutorialModalProps) => {
           </div>
 
           <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-black/20 p-3">
-            <GestureIcon type="release" />
+            <div className="gesture-icon">
+              <GestureIcon type="release" />
+            </div>
             <div>
               <div className="font-medium">Solte para lancar</div>
               <div className="text-white/65">A velocidade do lancamento vem do movimento real da sua mao.</div>
@@ -55,7 +71,9 @@ const TutorialModal = ({ open, onClose }: TutorialModalProps) => {
           </div>
 
           <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-black/20 p-3">
-            <GestureIcon type="fist" />
+            <div className="gesture-icon">
+              <GestureIcon type="fist" />
+            </div>
             <div>
               <div className="font-medium">Punho fechado para cancelar</div>
               <div className="text-white/65">Segure o punho por ~350ms para dissipar os poderes ativos.</div>

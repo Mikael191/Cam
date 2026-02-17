@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { FpsCounter, deltaSeconds } from '../utils/time'
 import type { TrackerFrame } from '../vision/handTracker'
-import { HAND_CONNECTIONS } from '../vision/handTracker'
+import { HAND_CONNECTIONS } from '../vision/handGeometry'
 import { clamp } from '../utils/math'
 import { PowerSystem } from '../powers/powerSystem'
 

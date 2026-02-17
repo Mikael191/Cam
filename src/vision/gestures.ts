@@ -72,6 +72,9 @@ export class GestureEngine {
   private pinchActive = false
   private pinchStartedAtMs = 0
   private pinchHoldEmitted = false
+  private pinchRatioEma = 1
+  private openPalmFrames = 0
+  private fistFrames = 0
   private openPalmStartedAtMs = 0
   private openPalmEmitted = false
   private fistStartedAtMs = 0
@@ -89,6 +92,9 @@ export class GestureEngine {
     this.pinchActive = false
     this.pinchStartedAtMs = 0
     this.pinchHoldEmitted = false
+    this.pinchRatioEma = 1
+    this.openPalmFrames = 0
+    this.fistFrames = 0
     this.openPalmStartedAtMs = 0
     this.openPalmEmitted = false
     this.fistStartedAtMs = 0
@@ -129,10 +135,11 @@ export class GestureEngine {
 
     const pinchDistance = distance3D(lm[INDEX.thumbTip], lm[INDEX.indexTip])
     const pinchRatio = pinchDistance / palmSize
+    this.pinchRatioEma = this.pinchRatioEma * 0.55 + pinchRatio * 0.45
 
     let pinch = this.pinchActive
-      ? pinchRatio < this.thresholds.pinchExit
-      : pinchRatio < this.thresholds.pinchEnter
+      ? this.pinchRatioEma < this.thresholds.pinchExit
+      : this.pinchRatioEma < this.thresholds.pinchEnter
 
     const indexExtended = fingerExtended(lm[INDEX.indexTip], lm[INDEX.indexPip], lm[INDEX.indexMcp], wrist)
     const middleExtended = fingerExtended(
@@ -157,8 +164,14 @@ export class GestureEngine {
 
     const extendedCount = [thumbExtended, indexExtended, middleExtended, ringExtended, pinkyExtended]
       .filter(Boolean).length
-    const openPalm = extendedCount >= 4 && !pinch
-    const fist = extendedCount <= 1 && !pinch
+    const openPalmCandidate = extendedCount >= 4 && !pinch
+    const fistCandidate = extendedCount <= 1 && !pinch
+
+    this.openPalmFrames = openPalmCandidate ? Math.min(6, this.openPalmFrames + 1) : 0
+    this.fistFrames = fistCandidate ? Math.min(6, this.fistFrames + 1) : 0
+
+    const openPalm = this.openPalmFrames >= 2
+    const fist = this.fistFrames >= 2
 
     if (pinch && !this.pinchActive) {
       this.pinchActive = true
@@ -218,7 +231,7 @@ export class GestureEngine {
       pinch,
       openPalm,
       fist,
-      pinchRatio,
+      pinchRatio: this.pinchRatioEma,
       confidence,
       label: resolveGestureLabel(pinch, this.pinchHoldEmitted, openPalm, fist),
       pinchDurationMs,

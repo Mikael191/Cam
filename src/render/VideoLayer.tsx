@@ -31,7 +31,12 @@ const VideoLayer = ({ videoRef, stream, mirror, showMiniPreview }: VideoLayerPro
         autoPlay
         muted
         playsInline
+        aria-label="Preview da camera"
       />
+
+      {!stream ? (
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(27,53,88,0.5),rgba(6,9,16,0.9)_45%,rgba(3,5,9,0.98)_100%)]" />
+      ) : null}
 
       {showMiniPreview ? (
         <div className="pointer-events-none absolute bottom-4 right-4 z-30 overflow-hidden rounded-xl border border-white/25 bg-black/50 shadow-premium backdrop-blur">

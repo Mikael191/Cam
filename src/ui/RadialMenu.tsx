@@ -20,6 +20,9 @@ const RadialMenu = ({ open, center, hover, selected, onSelect }: RadialMenuProps
   return (
     <div
       className="pointer-events-none absolute z-50"
+      role="menu"
+      aria-label="Selecionar elemento"
+      data-ui-control="true"
       style={{
         left: `${center.x * 100}%`,
         top: `${center.y * 100}%`,
@@ -40,6 +43,9 @@ const RadialMenu = ({ open, center, hover, selected, onSelect }: RadialMenuProps
             key={element}
             type="button"
             onClick={() => onSelect(element)}
+            role="menuitemradio"
+            aria-checked={selected === element}
+            aria-label={`Selecionar ${ELEMENT_LABELS[element]}`}
             className="pointer-events-auto absolute left-1/2 top-1/2 flex h-14 w-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border text-[10px] font-medium uppercase tracking-[0.15em] text-white transition"
             style={{
               transform: `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`,
