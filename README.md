@@ -1,76 +1,85 @@
-# Hand-Controlled Block Builder
+# HAND AR POWERS
 
-Aplicacao web (frontend-only) para construir e editar blocos 3D usando webcam + hand tracking no navegador.
+Aplicacao web front-end que usa webcam + hand tracking no navegador para invocar, carregar e lancar poderes elementais em tempo real.
 
 ## Stack
 
 - Vite + React + TypeScript
-- Three.js (render e interacao 3D)
-- Zustand (estado e historico)
-- TailwindCSS (UI)
-- MediaPipe Tasks Vision (`@mediapipe/tasks-vision`) para rastreio de maos
+- TailwindCSS
+- Zustand
+- MediaPipe Tasks Vision (`@mediapipe/tasks-vision`)
+- Canvas2D para efeitos em screen-space (sem mundo 3D navegavel)
 
-## Funcionalidades principais
+## O que o app faz
 
-- Webcam com preview opcional e overlay de landmarks.
-- Deteccao de uma ou duas maos em tempo real.
-- Cursor 3D guiado por dedo indicador com suavizacao EMA.
-- Modos:
-  - `BUILD`: coloca blocos com pinch tap.
-  - `ERASE`: apaga com pinch tap; fist apaga continuamente com rate limit.
-  - `MOVE`: pinch hold inicia drag e pinch release solta.
-  - `TEXT`: carimbo de texto usando fonte 5x7 (A-Z, 0-9, espaco).
-- Menu radial por gesto (`open palm hold`) para trocar modo.
-- Undo/Redo para place/erase/move/stamp.
-- Persistencia:
-  - Auto-save em LocalStorage (throttled).
-  - Snapshots nomeados (save/load).
-  - Export/Import JSON.
-- Fallback de teste por mouse/teclado:
-  - Clique esquerdo: acao do modo.
-  - Clique direito: erase.
-  - Modo move: clique e arraste.
-  - Atalhos: `1-4` modos, `Ctrl/Cmd+Z` undo, `Ctrl/Cmd+Y` redo.
+- Video da webcam em fullscreen.
+- Detecta 1-2 maos com suavizacao (One Euro) e hysteresis de perda curta.
+- Gestos com state machine:
+  - `PINCH`: invocar/segurar/carregar/soltar
+  - `OPEN PALM HOLD`: abre menu radial para escolher elemento
+  - `FIST HOLD`: dissipar/cancelar
+- 6 elementos com identidade visual:
+  - Fogo, Gelo, Raio, Agua, Vento, Terra
+- Lancamento com velocidade real baseada no movimento do indicador (janela de amostras).
+- Colisao com bordas: quica 1x e dissipa.
+- Fluxo de calibracao:
+  - mao aberta por 2s
+  - pinch 2x
+- UI minimalista:
+  - indicador do elemento
+  - toggles debug/mini preview/espelho
+  - qualidade (Low/Med/High)
+  - delegate (GPU/CPU)
+  - sliders de confianca
 
 ## Estrutura
 
 ```txt
 src/
-  app/App.tsx
+  App.tsx
+  main.tsx
+  index.css
   vision/
     handTracker.ts
+    filters.ts
     gestures.ts
-    smoothing.ts
-  world/
-    voxelStore.ts
-    voxelTypes.ts
-    serialization.ts
-    textStamp.ts
-  three/
-    SceneCanvas.tsx
-    raycast.ts
-    instancedVoxels.ts
-    ghostPreview.ts
+  powers/
+    powerTypes.ts
+    powerSystem.ts
+    presets/
+      index.ts
+      fire.ts
+      ice.ts
+      lightning.ts
+      water.ts
+      wind.ts
+      earth.ts
+  render/
+    VideoLayer.tsx
+    EffectsCanvas.tsx
   ui/
-    ModeBar.tsx
+    HUD.tsx
     RadialMenu.tsx
     TutorialModal.tsx
-    Panels.tsx
-    radialUtils.ts
+    CalibrateModal.tsx
+  store/
+    appStore.ts
   utils/
-    throttle.ts
     math.ts
+    throttle.ts
+    time.ts
 ```
 
 ## Requisitos
 
-- Node.js 20+ recomendado
-- Browser moderno com WebGL e permissao de webcam
+- Node.js 20+
+- Navegador moderno com webcam habilitada
+- HTTPS ou `localhost` para permissao de camera
 
 ## Comandos
 
 ```bash
-npm install
+npm i
 npm run dev
 npm run build
 npm run preview
@@ -83,53 +92,52 @@ npm run lint
 npm run format
 ```
 
-## Uso rapido
+## Como usar
 
 1. Rode `npm run dev`.
-2. Abra no navegador.
-3. Permita acesso da webcam.
-4. Ajuste qualidade (`low/medium/high`) e toggles no painel.
-5. Use os gestos:
-   - Pinch tap para confirmar acao do modo.
-   - Pinch hold para drag.
-   - Open palm hold para abrir radial.
-   - Fist no modo erase para apagar em sequencia.
+2. Abra no navegador e permita acesso da camera.
+3. Clique em `Calibrar` para ajustar thresholds ao seu tamanho de mao.
+4. Gestos:
+   - Abra a mao (hold) para abrir menu radial e escolher elemento.
+   - Belisque (indicador + dedao) para invocar o orb.
+   - Segure o belisco para carregar.
+   - Solte para lancar.
+   - Feche o punho (hold) para dissipar tudo.
 
-## Deploy (Vercel / estatico)
+## Performance
 
-### Vercel
-
-1. Importe o repo no Vercel.
-2. Framework preset: `Vite`.
-3. Build command: `npm run build`.
-4. Output directory: `dist`.
-5. Deploy.
-
-### Static hosting (Netlify/GitHub Pages/S3/etc.)
-
-1. Rode `npm run build`.
-2. Publique a pasta `dist`.
-
-## Dicas de performance
-
-- Use qualidade `low` em hardware fraco.
-- Evite deixar preview/landmarks ligados se nao estiver calibrando.
-- Reduza distancia/rotacao de camera para menos custo de render.
-- O app ja usa:
-  - limite de inferencia por FPS configuravel,
-  - suavizacao EMA do cursor,
-  - `InstancedMesh` para voxels,
-  - atualizacao de estado com historico por diffs.
+- Default em `Low` (640x360, inferencia 24fps).
+- Render roda separado da inferencia.
+- Limites internos:
+  - ate 50 projeteis ativos
+  - pool de ate 6000 particulas
+- Recomendacoes para PC fraco:
+  - manter `Low`
+  - desligar `Debug`
+  - desligar `Mini preview`
+  - usar delegate `GPU` quando disponivel
 
 ## Troubleshooting
 
-- Webcam nao abre:
-  - verifique permissao do navegador/OS;
-  - use HTTPS ou `localhost`;
-  - clique em `Reiniciar webcam/tracker` no painel.
+- `Nao foi possivel iniciar camera`:
+  - confirme permissao de webcam no browser/OS
+  - use `localhost` ou HTTPS
 - Tracking instavel:
-  - melhore iluminacao;
-  - use fundo menos poluido;
-  - aproxime a mao e reduza qualidade para manter FPS.
-- JSON import falha:
-  - confirme schema `hand-builder-scene@1`.
+  - ilumine melhor o ambiente
+  - aproxime a mao da camera
+  - rode calibracao novamente
+  - ajuste sliders de confidence
+- GPU indisponivel:
+  - app troca para CPU automaticamente
+
+## Deploy no Vercel (Vite estatico)
+
+1. Suba o repo para o GitHub.
+2. No Vercel, `Add New Project` e selecione o repo.
+3. Configuracao:
+   - Framework Preset: `Vite`
+   - Build Command: `npm run build`
+   - Output Directory: `dist`
+4. Deploy.
+
+Tambem pode hospedar `dist/` em qualquer host estatico.

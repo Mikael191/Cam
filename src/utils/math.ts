@@ -1,5 +1,3 @@
-import type { Vec3i, WorldSize } from '../world/voxelTypes'
-
 export type Vec2 = {
   x: number
   y: number
@@ -30,26 +28,6 @@ export const distance3D = (a: Vec3, b: Vec3): number => {
   return Math.hypot(dx, dy, dz)
 }
 
-export const vec3Equals = (a: Vec3 | null, b: Vec3 | null): boolean => {
-  if (a === b) {
-    return true
-  }
-  if (!a || !b) {
-    return false
-  }
-  return a.x === b.x && a.y === b.y && a.z === b.z
-}
-
-export const vec3iEquals = (a: Vec3i | null, b: Vec3i | null): boolean => {
-  if (a === b) {
-    return true
-  }
-  if (!a || !b) {
-    return false
-  }
-  return a.x === b.x && a.y === b.y && a.z === b.z
-}
-
 export const toNdc = (normalized: Vec2): Vec2 => ({
   x: clamp(normalized.x, 0, 1) * 2 - 1,
   y: -(clamp(normalized.y, 0, 1) * 2 - 1),
@@ -60,19 +38,62 @@ export const fromNdc = (ndc: Vec2): Vec2 => ({
   y: (1 - ndc.y) * 0.5,
 })
 
-export const isCellInside = (cell: Vec3i, world: WorldSize): boolean =>
-  cell.x >= 0 &&
-  cell.y >= 0 &&
-  cell.z >= 0 &&
-  cell.x < world.x &&
-  cell.y < world.y &&
-  cell.z < world.z
+export const vec2Zero = (): Vec2 => ({ x: 0, y: 0 })
+export const vec3Zero = (): Vec3 => ({ x: 0, y: 0, z: 0 })
 
-export const normalizeVec3i = (vec: Vec3i): Vec3i => ({
-  x: Math.round(vec.x),
-  y: Math.round(vec.y),
-  z: Math.round(vec.z),
+export const length2D = (value: Vec2): number => Math.hypot(value.x, value.y)
+
+export const normalize2D = (value: Vec2): Vec2 => {
+  const len = length2D(value)
+  if (len <= 1e-6) {
+    return { x: 0, y: 0 }
+  }
+  return {
+    x: value.x / len,
+    y: value.y / len,
+  }
+}
+
+export const add2D = (a: Vec2, b: Vec2): Vec2 => ({
+  x: a.x + b.x,
+  y: a.y + b.y,
 })
+
+export const scale2D = (value: Vec2, factor: number): Vec2 => ({
+  x: value.x * factor,
+  y: value.y * factor,
+})
+
+export const sub2D = (a: Vec2, b: Vec2): Vec2 => ({
+  x: a.x - b.x,
+  y: a.y - b.y,
+})
+
+export const wrapAngle = (angle: number): number => {
+  let normalized = angle
+  while (normalized <= -Math.PI) {
+    normalized += Math.PI * 2
+  }
+  while (normalized > Math.PI) {
+    normalized -= Math.PI * 2
+  }
+  return normalized
+}
+
+export const median = (values: number[]): number => {
+  if (values.length === 0) {
+    return 0
+  }
+  const sorted = [...values].sort((a, b) => a - b)
+  const middle = Math.floor(sorted.length / 2)
+  if (sorted.length % 2 === 0) {
+    return (sorted[middle - 1] + sorted[middle]) * 0.5
+  }
+  return sorted[middle]
+}
+
+export const angleFromCenter = (point: Vec2, center: Vec2): number =>
+  Math.atan2(point.y - center.y, point.x - center.x)
 
 export const roundTo = (value: number, decimals = 2): number => {
   const factor = 10 ** decimals

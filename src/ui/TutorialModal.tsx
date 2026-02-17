@@ -1,107 +1,124 @@
-import { useVoxelStore } from '../world/voxelStore'
-import type { ReactNode } from 'react'
-
 type TutorialModalProps = {
-  onEnableCamera: () => void
+  open: boolean
+  onClose: () => void
 }
 
-const GestureCard = ({
-  title,
-  description,
-  children,
-}: {
-  title: string
-  description: string
-  children: ReactNode
-}) => (
-  <div className="rounded-2xl border border-white/10 bg-panelSoft/80 p-3">
-    <div className="mb-2 h-16 w-full rounded-xl bg-black/30 p-2">{children}</div>
-    <h4 className="text-sm font-semibold text-white">{title}</h4>
-    <p className="mt-1 text-xs text-slate-300">{description}</p>
-  </div>
-)
-
-export const TutorialModal = ({ onEnableCamera }: TutorialModalProps) => {
-  const open = useVoxelStore((state) => state.tutorialOpen)
-  const setOpen = useVoxelStore((state) => state.setTutorialOpen)
-
+const TutorialModal = ({ open, onClose }: TutorialModalProps) => {
   if (!open) {
     return null
   }
 
   return (
-    <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/60 p-4 backdrop-blur">
-      <div className="w-full max-w-3xl rounded-3xl border border-white/10 bg-panel p-6 shadow-premium">
-        <h2 className="text-2xl font-bold">Hand-Controlled Block Builder</h2>
-        <p className="mt-2 text-sm text-slate-300">
-          Permita webcam e use os gestos para construir com blocos 3D.
-        </p>
-
-        <div className="mt-5 grid gap-3 md:grid-cols-3">
-          <GestureCard
-            title="PINCH"
-            description="Tap: confirmar acao. Hold (>350ms): iniciar drag/move."
-          >
-            <svg viewBox="0 0 120 60" className="h-full w-full">
-              <circle cx="40" cy="30" r="11" fill="#5ec2ff" />
-              <circle cx="72" cy="30" r="11" fill="#7fffd4" />
-              <line x1="52" y1="30" x2="60" y2="30" stroke="#e2e8f0" strokeWidth="3" />
-            </svg>
-          </GestureCard>
-          <GestureCard
-            title="OPEN PALM"
-            description="Mantenha por 700ms para abrir menu radial de modos."
-          >
-            <svg viewBox="0 0 120 60" className="h-full w-full">
-              <rect x="24" y="18" width="72" height="28" rx="8" fill="#5ec2ff" opacity="0.35" />
-              <line x1="32" y1="12" x2="32" y2="48" stroke="#5ec2ff" strokeWidth="4" />
-              <line x1="46" y1="10" x2="46" y2="50" stroke="#5ec2ff" strokeWidth="4" />
-              <line x1="60" y1="9" x2="60" y2="51" stroke="#5ec2ff" strokeWidth="4" />
-              <line x1="74" y1="10" x2="74" y2="50" stroke="#5ec2ff" strokeWidth="4" />
-              <line x1="88" y1="12" x2="88" y2="48" stroke="#5ec2ff" strokeWidth="4" />
-            </svg>
-          </GestureCard>
-          <GestureCard
-            title="FIST"
-            description="No modo ERASE, punho fechado remove blocos continuamente."
-          >
-            <svg viewBox="0 0 120 60" className="h-full w-full">
-              <rect x="28" y="18" width="64" height="26" rx="10" fill="#ff7f7f" opacity="0.55" />
-              <circle cx="40" cy="30" r="6" fill="#ff7f7f" />
-              <circle cx="52" cy="30" r="6" fill="#ff7f7f" />
-              <circle cx="64" cy="30" r="6" fill="#ff7f7f" />
-              <circle cx="76" cy="30" r="6" fill="#ff7f7f" />
-            </svg>
-          </GestureCard>
-        </div>
-
-        <div className="mt-5 rounded-2xl border border-white/10 bg-black/25 p-4 text-xs text-slate-200">
-          <p>Build: pinch tap adiciona bloco no ghost.</p>
-          <p>Erase: pinch tap apaga bloco em hover.</p>
-          <p>Move: pinch hold pega bloco, solte para reposicionar.</p>
-          <p>Text: digite texto, posicione cursor e pinch para carimbar.</p>
-        </div>
-
-        <div className="mt-6 flex flex-wrap justify-end gap-2">
+    <div className="absolute inset-0 z-[70] flex items-center justify-center bg-black/72 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-xl rounded-2xl border border-white/15 bg-panel p-6 text-white shadow-premium">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold tracking-wide">Tutorial de Gestos</h2>
           <button
-            type="button"
-            onClick={() => setOpen(false)}
-            className="rounded-xl border border-white/15 bg-panelSoft px-4 py-2 text-sm hover:border-accent/60"
+            onClick={onClose}
+            className="rounded-lg border border-white/20 px-3 py-1 text-xs text-white/80 hover:bg-white/10"
           >
             Fechar
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              onEnableCamera()
-              setOpen(false)
-            }}
-            className="rounded-xl border border-accentStrong/70 bg-accentStrong/20 px-4 py-2 text-sm font-semibold hover:border-accentStrong"
-          >
-            Habilitar Webcam
-          </button>
+        </div>
+
+        <div className="space-y-4 text-sm text-white/85">
+          <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-black/20 p-3">
+            <GestureIcon type="open" />
+            <div>
+              <div className="font-medium">Abra a mao para escolher elemento</div>
+              <div className="text-white/65">Mantenha aberta por ~600ms para abrir o menu radial.</div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-black/20 p-3">
+            <GestureIcon type="pinch" />
+            <div>
+              <div className="font-medium">Belisque para invocar</div>
+              <div className="text-white/65">Junte indicador + dedao para criar o orb na sua mao.</div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-black/20 p-3">
+            <GestureIcon type="hold" />
+            <div>
+              <div className="font-medium">Segure o belisco para carregar</div>
+              <div className="text-white/65">A energia cresce ate o limite enquanto o pinch continua.</div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-black/20 p-3">
+            <GestureIcon type="release" />
+            <div>
+              <div className="font-medium">Solte para lancar</div>
+              <div className="text-white/65">A velocidade do lancamento vem do movimento real da sua mao.</div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-black/20 p-3">
+            <GestureIcon type="fist" />
+            <div>
+              <div className="font-medium">Punho fechado para cancelar</div>
+              <div className="text-white/65">Segure o punho por ~350ms para dissipar os poderes ativos.</div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
   )
 }
+
+type IconProps = {
+  type: 'open' | 'pinch' | 'hold' | 'release' | 'fist'
+}
+
+const GestureIcon = ({ type }: IconProps) => {
+  const stroke = '#d8f1ff'
+
+  if (type === 'open') {
+    return (
+      <svg width="52" height="52" viewBox="0 0 52 52" fill="none" aria-hidden>
+        <rect x="5" y="5" width="42" height="42" rx="12" stroke={stroke} strokeOpacity="0.35" />
+        <path d="M17 34V22M22 34V16M27 34V14M32 34V18M36 34V22" stroke={stroke} strokeWidth="2.4" strokeLinecap="round" />
+      </svg>
+    )
+  }
+
+  if (type === 'pinch') {
+    return (
+      <svg width="52" height="52" viewBox="0 0 52 52" fill="none" aria-hidden>
+        <rect x="5" y="5" width="42" height="42" rx="12" stroke={stroke} strokeOpacity="0.35" />
+        <path d="M18 34L24 24M34 34L28 24" stroke={stroke} strokeWidth="2.4" strokeLinecap="round" />
+        <circle cx="26" cy="24" r="3.5" fill="#8fdfff" />
+      </svg>
+    )
+  }
+
+  if (type === 'hold') {
+    return (
+      <svg width="52" height="52" viewBox="0 0 52 52" fill="none" aria-hidden>
+        <rect x="5" y="5" width="42" height="42" rx="12" stroke={stroke} strokeOpacity="0.35" />
+        <circle cx="26" cy="26" r="9" stroke={stroke} strokeWidth="2.2" />
+        <path d="M26 26V18" stroke={stroke} strokeWidth="2.2" strokeLinecap="round" />
+      </svg>
+    )
+  }
+
+  if (type === 'release') {
+    return (
+      <svg width="52" height="52" viewBox="0 0 52 52" fill="none" aria-hidden>
+        <rect x="5" y="5" width="42" height="42" rx="12" stroke={stroke} strokeOpacity="0.35" />
+        <path d="M14 27H33" stroke={stroke} strokeWidth="2.4" strokeLinecap="round" />
+        <path d="M29 21L37 27L29 33" stroke={stroke} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )
+  }
+
+  return (
+    <svg width="52" height="52" viewBox="0 0 52 52" fill="none" aria-hidden>
+      <rect x="5" y="5" width="42" height="42" rx="12" stroke={stroke} strokeOpacity="0.35" />
+      <path d="M18 34V24M23 34V23M28 34V24M33 34V26M18 34H34" stroke={stroke} strokeWidth="2.4" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+export default TutorialModal

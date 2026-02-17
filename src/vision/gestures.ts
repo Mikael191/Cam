@@ -1,14 +1,13 @@
-import { clamp, distance3D } from '../utils/math'
+import { clamp, distance3D, median } from '../utils/math'
+import type { TrackedHand } from './handTracker'
 
-export type Landmark = {
-  x: number
-  y: number
-  z: number
-}
-
-export type HandGestureInput = {
-  landmarks: Landmark[]
-  score: number
+export type GestureThresholds = {
+  pinchEnter: number
+  pinchExit: number
+  pinchTapMaxMs: number
+  pinchHoldMs: number
+  openPalmHoldMs: number
+  fistHoldMs: number
 }
 
 export type GestureEvents = {
@@ -16,6 +15,7 @@ export type GestureEvents = {
   pinchHoldStart: boolean
   pinchEnd: boolean
   openPalmHold: boolean
+  fistHold: boolean
 }
 
 export type GestureFrame = {
@@ -23,23 +23,27 @@ export type GestureFrame = {
   pinch: boolean
   openPalm: boolean
   fist: boolean
-  label: string
+  pinchRatio: number
   confidence: number
+  label: string
   pinchDurationMs: number
   events: GestureEvents
 }
 
-export type GestureThresholds = {
-  pinchRatio: number
-  pinchTapMaxMs: number
-  pinchHoldMs: number
-  openPalmHoldMs: number
+export type CalibrationStage = 'idle' | 'open_palm' | 'pinch' | 'done'
+
+export type CalibrationUpdate = {
+  stage: CalibrationStage
+  progress: number
+  pinchCount: number
+  completed: boolean
+  result: GestureThresholds | null
 }
 
-const INDEXES = {
+const INDEX = {
   wrist: 0,
-  thumbIp: 3,
   thumbTip: 4,
+  thumbIp: 3,
   indexMcp: 5,
   indexPip: 6,
   indexTip: 8,
@@ -54,45 +58,53 @@ const INDEXES = {
   pinkyTip: 20,
 }
 
-const DEFAULT_THRESHOLDS: GestureThresholds = {
-  pinchRatio: 0.35,
-  pinchTapMaxMs: 260,
+export const DEFAULT_THRESHOLDS: GestureThresholds = {
+  pinchEnter: 0.33,
+  pinchExit: 0.42,
+  pinchTapMaxMs: 200,
   pinchHoldMs: 350,
-  openPalmHoldMs: 700,
+  openPalmHoldMs: 600,
+  fistHoldMs: 350,
 }
 
 export class GestureEngine {
-  private readonly thresholds: GestureThresholds
+  private thresholds: GestureThresholds
   private pinchActive = false
-  private pinchStartedAt = 0
+  private pinchStartedAtMs = 0
   private pinchHoldEmitted = false
-  private openPalmStartedAt = 0
+  private openPalmStartedAtMs = 0
   private openPalmEmitted = false
+  private fistStartedAtMs = 0
+  private fistEmitted = false
 
-  constructor(thresholds?: Partial<GestureThresholds>) {
-    this.thresholds = {
-      ...DEFAULT_THRESHOLDS,
-      ...thresholds,
-    }
+  constructor(thresholds: GestureThresholds = DEFAULT_THRESHOLDS) {
+    this.thresholds = thresholds
+  }
+
+  setThresholds(thresholds: GestureThresholds): void {
+    this.thresholds = thresholds
   }
 
   reset(): void {
     this.pinchActive = false
-    this.pinchStartedAt = 0
+    this.pinchStartedAtMs = 0
     this.pinchHoldEmitted = false
-    this.openPalmStartedAt = 0
+    this.openPalmStartedAtMs = 0
     this.openPalmEmitted = false
+    this.fistStartedAtMs = 0
+    this.fistEmitted = false
   }
 
-  update(hand: HandGestureInput | null, nowMs: number): GestureFrame {
+  update(hand: TrackedHand | null, nowMs: number): GestureFrame {
     const events: GestureEvents = {
       pinchTap: false,
       pinchHoldStart: false,
       pinchEnd: false,
       openPalmHold: false,
+      fistHold: false,
     }
 
-    if (!hand || hand.landmarks.length < 21) {
+    if (!hand) {
       if (this.pinchActive) {
         events.pinchEnd = true
       }
@@ -102,134 +114,235 @@ export class GestureEngine {
         pinch: false,
         openPalm: false,
         fist: false,
-        label: 'NO_HAND',
+        pinchRatio: 1,
         confidence: 0,
+        label: 'NO_HAND',
         pinchDurationMs: 0,
         events,
       }
     }
 
     const lm = hand.landmarks
-    const wrist = lm[INDEXES.wrist]
-    const middleMcp = lm[INDEXES.middleMcp]
-    const palmSize = Math.max(distance3D(wrist, middleMcp), 0.02)
+    const wrist = lm[INDEX.wrist]
+    const middleMcp = lm[INDEX.middleMcp]
+    const palmSize = Math.max(distance3D(wrist, middleMcp), 0.03)
 
-    const thumbTip = lm[INDEXES.thumbTip]
-    const indexTip = lm[INDEXES.indexTip]
-    const pinchDistance = distance3D(thumbTip, indexTip)
+    const pinchDistance = distance3D(lm[INDEX.thumbTip], lm[INDEX.indexTip])
     const pinchRatio = pinchDistance / palmSize
-    const pinch = pinchRatio < this.thresholds.pinchRatio
 
-    const indexExtended = fingerExtended(
-      lm[INDEXES.indexTip],
-      lm[INDEXES.indexPip],
-      lm[INDEXES.indexMcp],
-      wrist,
-    )
+    let pinch = this.pinchActive
+      ? pinchRatio < this.thresholds.pinchExit
+      : pinchRatio < this.thresholds.pinchEnter
+
+    const indexExtended = fingerExtended(lm[INDEX.indexTip], lm[INDEX.indexPip], lm[INDEX.indexMcp], wrist)
     const middleExtended = fingerExtended(
-      lm[INDEXES.middleTip],
-      lm[INDEXES.middlePip],
-      lm[INDEXES.middleMcp],
+      lm[INDEX.middleTip],
+      lm[INDEX.middlePip],
+      lm[INDEX.middleMcp],
       wrist,
     )
-    const ringExtended = fingerExtended(
-      lm[INDEXES.ringTip],
-      lm[INDEXES.ringPip],
-      lm[INDEXES.ringMcp],
-      wrist,
-    )
+    const ringExtended = fingerExtended(lm[INDEX.ringTip], lm[INDEX.ringPip], lm[INDEX.ringMcp], wrist)
     const pinkyExtended = fingerExtended(
-      lm[INDEXES.pinkyTip],
-      lm[INDEXES.pinkyPip],
-      lm[INDEXES.pinkyMcp],
+      lm[INDEX.pinkyTip],
+      lm[INDEX.pinkyPip],
+      lm[INDEX.pinkyMcp],
       wrist,
     )
-    const thumbExtended = thumbIsExtended(
-      lm[INDEXES.thumbTip],
-      lm[INDEXES.thumbIp],
-      lm[INDEXES.indexMcp],
+    const thumbExtended = thumbExtendedScore(
+      lm[INDEX.thumbTip],
+      lm[INDEX.thumbIp],
+      lm[INDEX.indexMcp],
       wrist,
     )
 
-    const extendedCount = [
-      thumbExtended,
-      indexExtended,
-      middleExtended,
-      ringExtended,
-      pinkyExtended,
-    ].filter(Boolean).length
-
-    const avgTipToWrist =
-      (distance3D(lm[INDEXES.indexTip], wrist) +
-        distance3D(lm[INDEXES.middleTip], wrist) +
-        distance3D(lm[INDEXES.ringTip], wrist) +
-        distance3D(lm[INDEXES.pinkyTip], wrist)) /
-      4
-
+    const extendedCount = [thumbExtended, indexExtended, middleExtended, ringExtended, pinkyExtended]
+      .filter(Boolean).length
     const openPalm = extendedCount >= 4 && !pinch
-    const fist = extendedCount <= 1 && avgTipToWrist < palmSize * 2.0 && !pinch
+    const fist = extendedCount <= 1 && !pinch
 
     if (pinch && !this.pinchActive) {
       this.pinchActive = true
-      this.pinchStartedAt = nowMs
+      this.pinchStartedAtMs = nowMs
       this.pinchHoldEmitted = false
     } else if (pinch && this.pinchActive) {
-      const pinchDuration = nowMs - this.pinchStartedAt
-      if (!this.pinchHoldEmitted && pinchDuration >= this.thresholds.pinchHoldMs) {
+      if (!this.pinchHoldEmitted && nowMs - this.pinchStartedAtMs >= this.thresholds.pinchHoldMs) {
         this.pinchHoldEmitted = true
         events.pinchHoldStart = true
       }
     } else if (!pinch && this.pinchActive) {
-      const pinchDuration = nowMs - this.pinchStartedAt
-      if (!this.pinchHoldEmitted && pinchDuration <= this.thresholds.pinchTapMaxMs) {
+      const duration = nowMs - this.pinchStartedAtMs
+      if (!this.pinchHoldEmitted && duration <= this.thresholds.pinchTapMaxMs) {
         events.pinchTap = true
       }
       events.pinchEnd = true
       this.pinchActive = false
+      this.pinchStartedAtMs = 0
       this.pinchHoldEmitted = false
-      this.pinchStartedAt = 0
+      pinch = false
     }
 
     if (openPalm) {
-      if (!this.openPalmStartedAt) {
-        this.openPalmStartedAt = nowMs
+      if (!this.openPalmStartedAtMs) {
+        this.openPalmStartedAtMs = nowMs
         this.openPalmEmitted = false
       } else if (
         !this.openPalmEmitted &&
-        nowMs - this.openPalmStartedAt >= this.thresholds.openPalmHoldMs
+        nowMs - this.openPalmStartedAtMs >= this.thresholds.openPalmHoldMs
       ) {
         this.openPalmEmitted = true
         events.openPalmHold = true
       }
     } else {
-      this.openPalmStartedAt = 0
+      this.openPalmStartedAtMs = 0
       this.openPalmEmitted = false
     }
 
-    const pinchDurationMs = this.pinchActive ? nowMs - this.pinchStartedAt : 0
-    const confidence = clamp(hand.score * 0.75 + (pinch || openPalm || fist ? 0.2 : 0.1), 0, 1)
+    if (fist) {
+      if (!this.fistStartedAtMs) {
+        this.fistStartedAtMs = nowMs
+        this.fistEmitted = false
+      } else if (!this.fistEmitted && nowMs - this.fistStartedAtMs >= this.thresholds.fistHoldMs) {
+        this.fistEmitted = true
+        events.fistHold = true
+      }
+    } else {
+      this.fistStartedAtMs = 0
+      this.fistEmitted = false
+    }
+
+    const pinchDurationMs = this.pinchActive ? nowMs - this.pinchStartedAtMs : 0
+    const confidence = clamp(0.5 + hand.confidence * 0.4 + (pinch || openPalm || fist ? 0.1 : 0), 0, 1)
 
     return {
       handPresent: true,
-      pinch: this.pinchActive || pinch,
+      pinch,
       openPalm,
       fist,
-      label: resolveLabel(this.pinchActive, this.pinchHoldEmitted, openPalm, fist),
+      pinchRatio,
       confidence,
+      label: resolveGestureLabel(pinch, this.pinchHoldEmitted, openPalm, fist),
       pinchDurationMs,
       events,
     }
   }
 }
 
-const resolveLabel = (
-  pinchActive: boolean,
-  pinchHoldEmitted: boolean,
+export class CalibrationSession {
+  private running = false
+  private stage: CalibrationStage = 'idle'
+  private stageStartedAtMs = 0
+  private openHoldProgress = 0
+  private pinchRatios: number[] = []
+  private pinchCount = 0
+  private lastPinch = false
+  private result: GestureThresholds | null = null
+
+  start(nowMs: number): void {
+    this.running = true
+    this.stage = 'open_palm'
+    this.stageStartedAtMs = nowMs
+    this.openHoldProgress = 0
+    this.pinchRatios = []
+    this.pinchCount = 0
+    this.lastPinch = false
+    this.result = null
+  }
+
+  stop(): void {
+    this.running = false
+    this.stage = 'idle'
+  }
+
+  isRunning(): boolean {
+    return this.running
+  }
+
+  update(hand: TrackedHand | null, gesture: GestureFrame, nowMs: number): CalibrationUpdate {
+    if (!this.running) {
+      return {
+        stage: this.stage,
+        progress: 0,
+        pinchCount: this.pinchCount,
+        completed: false,
+        result: this.result,
+      }
+    }
+
+    if (this.stage === 'open_palm') {
+      if (gesture.openPalm && hand) {
+        const elapsed = nowMs - this.stageStartedAtMs
+        this.openHoldProgress = clamp(elapsed / 2000, 0, 1)
+        if (this.openHoldProgress >= 1) {
+          this.stage = 'pinch'
+          this.stageStartedAtMs = nowMs
+        }
+      } else {
+        this.stageStartedAtMs = nowMs
+        this.openHoldProgress = 0
+      }
+      return {
+        stage: this.stage,
+        progress: this.openHoldProgress,
+        pinchCount: this.pinchCount,
+        completed: false,
+        result: null,
+      }
+    }
+
+    if (this.stage === 'pinch') {
+      const currentPinch = gesture.pinch && handPresentWithConfidence(hand)
+      if (currentPinch && !this.lastPinch) {
+        this.pinchCount += 1
+        this.pinchRatios.push(gesture.pinchRatio)
+      }
+      this.lastPinch = currentPinch
+
+      if (this.pinchCount >= 2) {
+        const base = median(this.pinchRatios)
+        const enter = clamp(base * 1.25, 0.2, 0.45)
+        const exit = clamp(enter * 1.28, enter + 0.05, 0.62)
+        this.result = {
+          ...DEFAULT_THRESHOLDS,
+          pinchEnter: enter,
+          pinchExit: exit,
+        }
+        this.stage = 'done'
+        this.running = false
+        return {
+          stage: 'done',
+          progress: 1,
+          pinchCount: this.pinchCount,
+          completed: true,
+          result: this.result,
+        }
+      }
+      return {
+        stage: this.stage,
+        progress: clamp(this.pinchCount / 2, 0, 1),
+        pinchCount: this.pinchCount,
+        completed: false,
+        result: null,
+      }
+    }
+
+    return {
+      stage: this.stage,
+      progress: this.stage === 'done' ? 1 : 0,
+      pinchCount: this.pinchCount,
+      completed: this.stage === 'done',
+      result: this.result,
+    }
+  }
+}
+
+const resolveGestureLabel = (
+  pinch: boolean,
+  pinchHolding: boolean,
   openPalm: boolean,
   fist: boolean,
 ): string => {
-  if (pinchActive) {
-    return pinchHoldEmitted ? 'PINCH_HOLD' : 'PINCH'
+  if (pinch) {
+    return pinchHolding ? 'PINCH_HOLD' : 'PINCH'
   }
   if (openPalm) {
     return 'OPEN_PALM'
@@ -240,22 +353,30 @@ const resolveLabel = (
   return 'IDLE'
 }
 
-const fingerExtended = (tip: Landmark, pip: Landmark, mcp: Landmark, wrist: Landmark): boolean => {
+const fingerExtended = (
+  tip: { x: number; y: number; z: number },
+  pip: { x: number; y: number; z: number },
+  mcp: { x: number; y: number; z: number },
+  wrist: { x: number; y: number; z: number },
+): boolean => {
   const tipDistance = distance3D(tip, wrist)
   const pipDistance = distance3D(pip, wrist)
   const mcpDistance = distance3D(mcp, wrist)
-  return tipDistance > pipDistance * 1.04 && pipDistance > mcpDistance * 0.96
+  return tipDistance > pipDistance * 1.03 && pipDistance > mcpDistance * 0.95
 }
 
-const thumbIsExtended = (
-  thumbTip: Landmark,
-  thumbIp: Landmark,
-  indexMcp: Landmark,
-  wrist: Landmark,
+const thumbExtendedScore = (
+  tip: { x: number; y: number; z: number },
+  ip: { x: number; y: number; z: number },
+  indexMcp: { x: number; y: number; z: number },
+  wrist: { x: number; y: number; z: number },
 ): boolean => {
-  const tipVsPalm = distance3D(thumbTip, indexMcp)
-  const ipVsPalm = distance3D(thumbIp, indexMcp)
-  const tipVsWrist = distance3D(thumbTip, wrist)
-  const ipVsWrist = distance3D(thumbIp, wrist)
-  return tipVsPalm > ipVsPalm * 1.05 && tipVsWrist > ipVsWrist
+  const tipPalm = distance3D(tip, indexMcp)
+  const ipPalm = distance3D(ip, indexMcp)
+  const tipWrist = distance3D(tip, wrist)
+  const ipWrist = distance3D(ip, wrist)
+  return tipPalm > ipPalm * 1.04 && tipWrist >= ipWrist
 }
+
+const handPresentWithConfidence = (hand: TrackedHand | null): boolean =>
+  Boolean(hand && hand.confidence > 0.35 && hand.staleMs < 240)
