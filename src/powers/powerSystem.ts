@@ -57,6 +57,21 @@ type RingSpawn = {
   blend?: GlobalCompositeOperation
 }
 
+type ScreenPoint = {
+  x: number
+  y: number
+}
+
+type DualLightningState = {
+  active: boolean
+  fade: number
+  intensity: number
+  left: ScreenPoint | null
+  right: ScreenPoint | null
+  sparkAccumulator: number
+  phase: number
+}
+
 export type PowerSummary = {
   holding: boolean
   charge: number
@@ -104,6 +119,15 @@ export class PowerSystem {
   private nextRingIndex = 0
   private idSequence = 1
   private heldEmissionAccumulator = 0
+  private dualLightning: DualLightningState = {
+    active: false,
+    fade: 0,
+    intensity: 0,
+    left: null,
+    right: null,
+    sparkAccumulator: 0,
+    phase: 0,
+  }
 
   getSelectedElement(): PowerElement {
     return this.selectedElement
@@ -111,21 +135,48 @@ export class PowerSystem {
 
   setSelectedElement(element: PowerElement): void {
     this.selectedElement = element
+    if (element !== 'lightning') {
+      this.setDualLightning(false, null, null, 0)
+    }
   }
 
   hasHeldPower(): boolean {
     return Boolean(this.heldPower)
   }
 
+  setDualLightning(
+    active: boolean,
+    left: ScreenPoint | null,
+    right: ScreenPoint | null,
+    intensity: number,
+  ): void {
+    this.dualLightning.active = active
+    if (active && left && right) {
+      this.dualLightning.left = left
+      this.dualLightning.right = right
+      this.dualLightning.intensity = clamp(intensity, 0, 1)
+      if (this.heldPower?.element === 'lightning') {
+        this.heldPower = null
+      }
+      if (this.projectiles.some((entry) => entry.element === 'lightning')) {
+        this.projectiles = this.projectiles.filter((entry) => entry.element !== 'lightning')
+      }
+    }
+  }
+
   getSummary(): PowerSummary {
+    const dualLightningHolding = this.dualLightning.fade > 0.05 && this.selectedElement === 'lightning'
     return {
-      holding: Boolean(this.heldPower),
-      charge: this.heldPower?.charge ?? 0,
+      holding: Boolean(this.heldPower) || dualLightningHolding,
+      charge: this.heldPower?.charge ?? this.dualLightning.intensity * this.dualLightning.fade,
       projectileCount: this.projectiles.length,
     }
   }
 
   invokeAt(handLabel: 'Left' | 'Right', x: number, y: number, nowMs: number): void {
+    if (this.selectedElement === 'lightning') {
+      return
+    }
     if (this.heldPower) {
       return
     }
@@ -175,6 +226,10 @@ export class PowerSystem {
     }
 
     const held = this.heldPower
+    if (held.element === 'lightning') {
+      this.heldPower = null
+      return
+    }
     const preset = PRESETS[held.element]
     const chargeScale = 1 + held.charge * 1.5
     const projectile: PowerProjectile = {
@@ -263,6 +318,12 @@ export class PowerSystem {
     this.heldPower = null
     this.projectiles = []
     this.heldEmissionAccumulator = 0
+    this.dualLightning.active = false
+    this.dualLightning.fade = 0
+    this.dualLightning.intensity = 0
+    this.dualLightning.left = null
+    this.dualLightning.right = null
+    this.dualLightning.sparkAccumulator = 0
     for (const particle of this.particles) {
       particle.active = false
     }
@@ -272,6 +333,8 @@ export class PowerSystem {
   }
 
   update(dt: number): void {
+    this.updateDualLightning(dt)
+
     if (this.heldPower) {
       this.emitHeldAura(dt, this.heldPower)
     }
@@ -376,6 +439,8 @@ export class PowerSystem {
       preset.drawProjectile(ctx, projectile, nowMs, width, height)
     }
 
+    this.renderDualLightning(ctx, width, height, nowMs)
+
     for (const particle of this.particles) {
       if (!particle.active) {
         continue
@@ -460,6 +525,198 @@ export class PowerSystem {
         blend: 'lighter',
       })
     }
+  }
+
+  private updateDualLightning(dt: number): void {
+    if (
+      this.dualLightning.active &&
+      this.dualLightning.left &&
+      this.dualLightning.right &&
+      this.selectedElement === 'lightning'
+    ) {
+      this.dualLightning.fade = clamp(this.dualLightning.fade + dt * 5.8, 0, 1)
+      this.dualLightning.phase += dt * (8 + this.dualLightning.intensity * 10)
+
+      const emissionRate = 24 + this.dualLightning.intensity * 56
+      this.dualLightning.sparkAccumulator += dt * emissionRate
+      const sparkCount = Math.min(8, Math.floor(this.dualLightning.sparkAccumulator))
+      if (sparkCount > 0) {
+        this.dualLightning.sparkAccumulator -= sparkCount
+        for (let i = 0; i < sparkCount; i += 1) {
+          const t = Math.random()
+          const bridgeX =
+            this.dualLightning.left.x + (this.dualLightning.right.x - this.dualLightning.left.x) * t
+          const bridgeY =
+            this.dualLightning.left.y + (this.dualLightning.right.y - this.dualLightning.left.y) * t
+          const speed = 80 + Math.random() * 220
+          const angle = Math.random() * Math.PI * 2
+          this.spawnParticle({
+            x: bridgeX + (Math.random() - 0.5) * 0.012,
+            y: bridgeY + (Math.random() - 0.5) * 0.012,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            life: 0.06 + Math.random() * 0.16,
+            size: 1 + Math.random() * 2.2,
+            color: Math.random() > 0.5 ? '#e8ecff' : '#88bbff',
+            alpha: 0.88,
+            drag: 0.78,
+            shape: 'line',
+            rotation: angle,
+            spin: (Math.random() - 0.5) * 8,
+            sizeDecay: 1.5 + Math.random() * 4,
+            blend: 'lighter',
+          })
+        }
+      }
+
+      if (Math.random() < dt * (6 + this.dualLightning.intensity * 10)) {
+        const target = Math.random() > 0.5 ? this.dualLightning.left : this.dualLightning.right
+        this.spawnRing({
+          x: target.x,
+          y: target.y,
+          radius: 0.012 + this.dualLightning.intensity * 0.01,
+          growth: 0.2 + this.dualLightning.intensity * 0.34,
+          life: 0.1 + this.dualLightning.intensity * 0.14,
+          color: '#b8ceff',
+          alpha: 0.58,
+          lineWidth: 1.2 + this.dualLightning.intensity * 1.8,
+          fillAlpha: 0.08 + this.dualLightning.intensity * 0.12,
+          blend: 'lighter',
+        })
+      }
+      return
+    }
+
+    this.dualLightning.fade = clamp(this.dualLightning.fade - dt * 4.2, 0, 1)
+    this.dualLightning.phase += dt * 4
+    this.dualLightning.sparkAccumulator = Math.max(0, this.dualLightning.sparkAccumulator - dt * 18)
+    if (this.dualLightning.fade <= 0.01 && !this.dualLightning.active) {
+      this.dualLightning.left = null
+      this.dualLightning.right = null
+      this.dualLightning.intensity = 0
+    }
+  }
+
+  private renderDualLightning(
+    ctx: CanvasRenderingContext2D,
+    width: number,
+    height: number,
+    nowMs: number,
+  ): void {
+    if (this.dualLightning.fade <= 0.02 || !this.dualLightning.left || !this.dualLightning.right) {
+      return
+    }
+
+    const lx = this.dualLightning.left.x * width
+    const ly = this.dualLightning.left.y * height
+    const rx = this.dualLightning.right.x * width
+    const ry = this.dualLightning.right.y * height
+    const intensity = clamp(this.dualLightning.intensity * this.dualLightning.fade, 0.1, 1)
+    const glowRadius = (28 + intensity * 40) * (0.9 + Math.sin(nowMs * 0.016) * 0.06)
+
+    const drawHandGlow = (x: number, y: number) => {
+      ctx.save()
+      ctx.globalCompositeOperation = 'lighter'
+      const gradient = ctx.createRadialGradient(x, y, 0, x, y, glowRadius)
+      gradient.addColorStop(0, `rgba(238, 243, 255, ${0.78 * intensity})`)
+      gradient.addColorStop(0.36, `rgba(146, 179, 255, ${0.46 * intensity})`)
+      gradient.addColorStop(1, 'rgba(122, 144, 255, 0)')
+      ctx.fillStyle = gradient
+      ctx.beginPath()
+      ctx.arc(x, y, glowRadius, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.restore()
+    }
+
+    drawHandGlow(lx, ly)
+    drawHandGlow(rx, ry)
+
+    this.drawLightningBridge(
+      ctx,
+      lx,
+      ly,
+      rx,
+      ry,
+      18,
+      18 + intensity * 22,
+      this.dualLightning.phase,
+      'rgba(230, 238, 255, 0.92)',
+      2.8 + intensity * 2,
+      0.92,
+    )
+    this.drawLightningBridge(
+      ctx,
+      lx,
+      ly,
+      rx,
+      ry,
+      16,
+      10 + intensity * 16,
+      this.dualLightning.phase * 1.4 + 1.7,
+      'rgba(144, 188, 255, 0.86)',
+      1.8 + intensity * 1.6,
+      0.74,
+    )
+    this.drawLightningBridge(
+      ctx,
+      lx,
+      ly,
+      rx,
+      ry,
+      14,
+      7 + intensity * 12,
+      this.dualLightning.phase * 1.85 + 3.2,
+      'rgba(124, 140, 255, 0.66)',
+      1.2 + intensity * 1.2,
+      0.56,
+    )
+  }
+
+  private drawLightningBridge(
+    ctx: CanvasRenderingContext2D,
+    startX: number,
+    startY: number,
+    endX: number,
+    endY: number,
+    segments: number,
+    amplitude: number,
+    phase: number,
+    color: string,
+    lineWidth: number,
+    alpha: number,
+  ): void {
+    const dx = endX - startX
+    const dy = endY - startY
+    const length = Math.max(1, Math.hypot(dx, dy))
+    const nx = -dy / length
+    const ny = dx / length
+
+    ctx.save()
+    ctx.globalCompositeOperation = 'lighter'
+    ctx.globalAlpha = alpha
+    ctx.strokeStyle = color
+    ctx.lineWidth = lineWidth
+    ctx.lineJoin = 'round'
+    ctx.lineCap = 'round'
+    ctx.beginPath()
+    for (let i = 0; i <= segments; i += 1) {
+      const t = i / segments
+      const baseX = startX + dx * t
+      const baseY = startY + dy * t
+      const envelope = 1 - Math.abs(0.5 - t) * 1.5
+      const sineJitter = Math.sin(t * 12 + phase) * amplitude * envelope
+      const randomJitter = (Math.random() - 0.5) * amplitude * 0.62
+      const jitter = sineJitter + randomJitter
+      const x = baseX + nx * jitter
+      const y = baseY + ny * jitter
+      if (i === 0) {
+        ctx.moveTo(x, y)
+      } else {
+        ctx.lineTo(x, y)
+      }
+    }
+    ctx.stroke()
+    ctx.restore()
   }
 
   private emitProjectileEnd(preset: ElementPreset, projectile: PowerProjectile): void {

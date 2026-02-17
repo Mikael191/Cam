@@ -7,7 +7,6 @@ import type {
   TrackedHand,
 } from './vision/handTracker'
 import { PowerSystem } from './powers/powerSystem'
-import type { PowerElement } from './powers/powerTypes'
 import { ELEMENT_ORDER } from './powers/presets'
 import { ThrowVelocityTracker } from './vision/motion'
 import {
@@ -19,14 +18,13 @@ import type { LogLevel } from './core/logger'
 import VideoLayer from './render/VideoLayer'
 import EffectsCanvas from './render/EffectsCanvas'
 import HUD from './ui/HUD'
-import RadialMenu from './ui/RadialMenu'
 import TutorialModal from './ui/TutorialModal'
 import CalibrateModal from './ui/CalibrateModal'
 import PermissionScreen from './ui/PermissionScreen'
 
-const RADIAL_INNER_RADIUS = 0.06
-const RADIAL_OUTER_RADIUS = 0.24
 const TRACKING_GRACE_MS = 250
+const LIGHTNING_LINK_MIN = 0.08
+const LIGHTNING_LINK_MAX = 0.22
 const MOCK_HANDS_MODE = import.meta.env.VITE_MOCK_HANDS === '1'
 
 type TrackerRuntime = {
@@ -62,19 +60,42 @@ const pickDominantHand = (hands: TrackedHand[]): TrackedHand | null => {
 
 const mapXWithMirror = (x: number, mirror: boolean): number => (mirror ? 1 - x : x)
 
-const resolveRadialHover = (
-  cursor: { x: number; y: number },
-  center: { x: number; y: number },
-): PowerElement | null => {
-  const radius = distance2D(cursor, center)
-  if (radius < RADIAL_INNER_RADIUS || radius > RADIAL_OUTER_RADIUS) {
-    return null
+type DualLightningLink = {
+  active: boolean
+  left: { x: number; y: number } | null
+  right: { x: number; y: number } | null
+  intensity: number
+}
+
+const resolveDualLightningLink = (
+  hands: TrackedHand[],
+  mirror: boolean,
+): DualLightningLink => {
+  if (hands.length < 2) {
+    return { active: false, left: null, right: null, intensity: 0 }
   }
-  const angle = Math.atan2(cursor.y - center.y, cursor.x - center.x)
-  const normalized = (angle + Math.PI / 2 + Math.PI * 2) % (Math.PI * 2)
-  const segment = (Math.PI * 2) / ELEMENT_ORDER.length
-  const index = Math.floor(normalized / segment) % ELEMENT_ORDER.length
-  return ELEMENT_ORDER[index]
+
+  const sorted = [...hands].sort((a, b) => b.confidence - a.confidence)
+  const first = {
+    x: mapXWithMirror(sorted[0].palm.x, mirror),
+    y: sorted[0].palm.y,
+  }
+  const second = {
+    x: mapXWithMirror(sorted[1].palm.x, mirror),
+    y: sorted[1].palm.y,
+  }
+  const averageHandSize =
+    (sorted[0].bbox.width + sorted[0].bbox.height + sorted[1].bbox.width + sorted[1].bbox.height) * 0.25
+  const threshold = clamp(averageHandSize * 1.78, LIGHTNING_LINK_MIN, LIGHTNING_LINK_MAX)
+  const distance = distance2D(first, second)
+  const active = distance <= threshold
+  const intensity = active
+    ? clamp((threshold - distance) / Math.max(threshold * 0.68, 0.04), 0, 1)
+    : 0
+
+  const left = first.x <= second.x ? first : second
+  const right = first.x <= second.x ? second : first
+  return { active, left, right, intensity }
 }
 
 const normalizePointer = (event: PointerEvent): { x: number; y: number } => ({
@@ -111,9 +132,6 @@ const toFriendlyCameraError = (error: unknown): string => {
 
 const App = () => {
   const selectedElement = useAppStore((state) => state.selectedElement)
-  const radialOpen = useAppStore((state) => state.radialOpen)
-  const radialCenter = useAppStore((state) => state.radialCenter)
-  const radialHover = useAppStore((state) => state.radialHover)
   const tutorialOpen = useAppStore((state) => state.tutorialOpen)
   const trackingStatus = useAppStore((state) => state.trackingStatus)
   const trackingError = useAppStore((state) => state.trackingError)
@@ -126,8 +144,6 @@ const App = () => {
   const logs = useAppStore((state) => state.logs)
 
   const setSelectedElement = useAppStore((state) => state.setSelectedElement)
-  const setRadial = useAppStore((state) => state.setRadial)
-  const setRadialHover = useAppStore((state) => state.setRadialHover)
   const setTutorialOpen = useAppStore((state) => state.setTutorialOpen)
   const setTutorialDismissed = useAppStore((state) => state.setTutorialDismissed)
   const setTrackingStatus = useAppStore((state) => state.setTrackingStatus)
@@ -260,53 +276,38 @@ const App = () => {
         powerSystem.dissipateAll()
         throwVelocityRef.current.reset()
         pinchWasActiveRef.current = false
-        setRadial(false, null, null)
         addLog('info', 'Poderes dissipados por gesto fist hold')
         const summary = powerSystem.getSummary()
         setPowerState(summary.holding, summary.charge)
         return
       }
 
-      if (store.radialOpen) {
-        let hover: PowerElement | null = null
-        if (dominant && store.radialCenter) {
-          hover = resolveRadialHover(
-            {
-              x: mapXWithMirror(dominant.palm.x, mirror),
-              y: dominant.palm.y,
-            },
-            store.radialCenter,
-          )
-        }
-        setRadialHover(hover)
+      if (store.selectedElement === 'lightning') {
+        const link = resolveDualLightningLink(frame.hands, mirror)
+        powerSystem.setDualLightning(link.active, link.left, link.right, link.intensity)
 
-        if (gesture.events.pinchTap && hover) {
-          setSelectedElement(hover)
-          powerSystem.setSelectedElement(hover)
-          setRadial(false, null, null)
-          addLog('info', `Elemento selecionado: ${hover}`)
+        if (link.active) {
+          if (powerSystem.hasHeldPower()) {
+            powerSystem.cancelHeldPower()
+          }
+          throwVelocityRef.current.reset()
+          pinchWasActiveRef.current = false
+          setTrackingHint('Raio ativo: mantenha as duas maos proximas para sustentar a descarga.')
+          const summary = powerSystem.getSummary()
+          setPowerState(summary.holding, summary.charge)
+          return
         }
 
-        if (!dominant && frame.timestampMs - lastHandSeenAtMsRef.current > 320) {
-          setRadial(false, null, null)
+        if (frame.hands.length < 2) {
+          setTrackingHint('Raio: mostre as duas maos para canalizar energia eletrica.')
+        } else {
+          setTrackingHint('Raio: aproxime as maos para fechar o circuito.')
         }
-
         const summary = powerSystem.getSummary()
         setPowerState(summary.holding, summary.charge)
         return
-      }
-
-      if (gesture.events.openPalmHold && dominant) {
-        setRadial(
-          true,
-          {
-            x: mapXWithMirror(dominant.palm.x, mirror),
-            y: dominant.palm.y,
-          },
-          store.selectedElement,
-        )
-        addLog('debug', 'Menu radial aberto')
-        return
+      } else {
+        powerSystem.setDualLightning(false, null, null, 0)
       }
 
       const pinchStarted = gesture.pinch && !pinchWasActiveRef.current
@@ -346,9 +347,6 @@ const App = () => {
       setHands,
       setMetrics,
       setPowerState,
-      setRadial,
-      setRadialHover,
-      setSelectedElement,
       setTrackingHint,
     ],
   )
@@ -500,6 +498,11 @@ const App = () => {
       mouseState.tracker.reset()
       mouseState.tracker.push(point.x, point.y, nowMs)
 
+      if (powerSystem.getSelectedElement() === 'lightning') {
+        mouseState.active = false
+        return
+      }
+
       if (!powerSystem.hasHeldPower()) {
         powerSystem.invokeAt('Right', point.x, point.y, nowMs)
       }
@@ -566,6 +569,7 @@ const App = () => {
         if (element) {
           setSelectedElement(element)
           powerSystem.setSelectedElement(element)
+          powerSystem.setDualLightning(false, null, null, 0)
           addLog('debug', `Elemento via teclado: ${element}`)
         }
         return
@@ -624,12 +628,13 @@ const App = () => {
   }, [addLog])
 
   const selectElement = useCallback(
-    (element: PowerElement) => {
+    (element: (typeof ELEMENT_ORDER)[number]) => {
       setSelectedElement(element)
       powerSystem.setSelectedElement(element)
-      setRadial(false, null, null)
+      powerSystem.setDualLightning(false, null, null, 0)
+      setTrackingHint(null)
     },
-    [powerSystem, setRadial, setSelectedElement],
+    [powerSystem, setSelectedElement, setTrackingHint],
   )
 
   const startCalibration = useCallback(() => {
@@ -638,7 +643,6 @@ const App = () => {
     pinchWasActiveRef.current = false
     throwVelocityRef.current.reset()
     powerSystem.dissipateAll()
-    setRadial(false, null, null)
     setCalibrationState({
       running: true,
       stage: 'open_palm',
@@ -646,7 +650,7 @@ const App = () => {
       pinchCount: 0,
     })
     addLog('info', 'Calibracao iniciada')
-  }, [addLog, powerSystem, setCalibrationState, setRadial])
+  }, [addLog, powerSystem, setCalibrationState])
 
   const closeCalibration = useCallback(() => {
     calibrationSessionRef.current.stop()
@@ -717,17 +721,10 @@ const App = () => {
         onClearLogs={clearLogs}
         onOpenTutorial={() => setTutorialOpen(true)}
         onOpenCalibration={() => setCalibrationModal(true)}
+        onSelectElement={selectElement}
         onDetectionConfidenceChange={(value) => updateSettings({ minDetectionConfidence: value })}
         onPresenceConfidenceChange={(value) => updateSettings({ minPresenceConfidence: value })}
         onTrackingConfidenceChange={(value) => updateSettings({ minTrackingConfidence: value })}
-      />
-
-      <RadialMenu
-        open={radialOpen}
-        center={radialCenter}
-        hover={radialHover}
-        selected={selectedElement}
-        onSelect={selectElement}
       />
 
       <TutorialModal

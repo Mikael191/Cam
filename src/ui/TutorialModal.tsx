@@ -32,11 +32,11 @@ const TutorialModal = ({ open, onClose }: TutorialModalProps) => {
         <div className="space-y-4 text-sm text-white/85">
           <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-black/20 p-3">
             <div className="gesture-icon">
-              <GestureIcon type="open" />
+              <GestureIcon type="select" />
             </div>
             <div>
-              <div className="font-medium">Abra a mao para escolher elemento</div>
-              <div className="text-white/65">Mantenha aberta por ~600ms para abrir o menu radial.</div>
+              <div className="font-medium">Use o botao Elemento Atual para trocar poder</div>
+              <div className="text-white/65">Clique no indicador do elemento no topo e selecione fogo, gelo, raio, agua, vento ou terra.</div>
             </div>
           </div>
 
@@ -72,6 +72,16 @@ const TutorialModal = ({ open, onClose }: TutorialModalProps) => {
 
           <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-black/20 p-3">
             <div className="gesture-icon">
+              <GestureIcon type="lightning" />
+            </div>
+            <div>
+              <div className="font-medium">Raio: aproxime as duas maos</div>
+              <div className="text-white/65">No elemento raio nao existe orb. Junte as duas maos para ativar uma descarga eletrica entre elas.</div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-black/20 p-3">
+            <div className="gesture-icon">
               <GestureIcon type="fist" />
             </div>
             <div>
@@ -86,17 +96,18 @@ const TutorialModal = ({ open, onClose }: TutorialModalProps) => {
 }
 
 type IconProps = {
-  type: 'open' | 'pinch' | 'hold' | 'release' | 'fist'
+  type: 'select' | 'pinch' | 'hold' | 'release' | 'fist' | 'lightning'
 }
 
 const GestureIcon = ({ type }: IconProps) => {
   const stroke = '#d8f1ff'
 
-  if (type === 'open') {
+  if (type === 'select') {
     return (
       <svg width="52" height="52" viewBox="0 0 52 52" fill="none" aria-hidden>
         <rect x="5" y="5" width="42" height="42" rx="12" stroke={stroke} strokeOpacity="0.35" />
-        <path d="M17 34V22M22 34V16M27 34V14M32 34V18M36 34V22" stroke={stroke} strokeWidth="2.4" strokeLinecap="round" />
+        <rect x="14" y="16" width="24" height="8" rx="3.5" fill="#8fdfff" fillOpacity="0.35" />
+        <path d="M16 30H36M18 34H30" stroke={stroke} strokeWidth="2.4" strokeLinecap="round" />
       </svg>
     )
   }
@@ -127,6 +138,17 @@ const GestureIcon = ({ type }: IconProps) => {
         <rect x="5" y="5" width="42" height="42" rx="12" stroke={stroke} strokeOpacity="0.35" />
         <path d="M14 27H33" stroke={stroke} strokeWidth="2.4" strokeLinecap="round" />
         <path d="M29 21L37 27L29 33" stroke={stroke} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )
+  }
+
+  if (type === 'lightning') {
+    return (
+      <svg width="52" height="52" viewBox="0 0 52 52" fill="none" aria-hidden>
+        <rect x="5" y="5" width="42" height="42" rx="12" stroke={stroke} strokeOpacity="0.35" />
+        <circle cx="17" cy="26" r="4" fill="#8ab6ff" fillOpacity="0.45" />
+        <circle cx="35" cy="26" r="4" fill="#8ab6ff" fillOpacity="0.45" />
+        <path d="M20 26H24L22.5 22L29 26H26L28 30" stroke={stroke} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     )
   }

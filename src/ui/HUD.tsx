@@ -1,4 +1,5 @@
-import { ELEMENT_COLORS, ELEMENT_LABELS } from '../powers/presets'
+import { useState } from 'react'
+import { ELEMENT_COLORS, ELEMENT_LABELS, ELEMENT_ORDER } from '../powers/presets'
 import type { PowerElement } from '../powers/powerTypes'
 import type { LogEntry, LogLevel } from '../core/logger'
 import { formatLogTime } from '../core/logger'
@@ -31,6 +32,7 @@ type HUDProps = {
   onClearLogs: () => void
   onOpenTutorial: () => void
   onOpenCalibration: () => void
+  onSelectElement: (element: PowerElement) => void
   onDetectionConfidenceChange: (value: number) => void
   onPresenceConfidenceChange: (value: number) => void
   onTrackingConfidenceChange: (value: number) => void
@@ -70,12 +72,14 @@ const HUD = ({
   onClearLogs,
   onOpenTutorial,
   onOpenCalibration,
+  onSelectElement,
   onDetectionConfidenceChange,
   onPresenceConfidenceChange,
   onTrackingConfidenceChange,
 }: HUDProps) => {
   const elementColor = ELEMENT_COLORS[selectedElement]
   const handDetected = metrics.handsDetected > 0
+  const [elementPickerOpen, setElementPickerOpen] = useState(false)
 
   return (
     <>
@@ -83,18 +87,63 @@ const HUD = ({
         className="absolute left-4 top-4 right-4 z-40 flex flex-wrap items-start justify-between gap-3"
         data-ui-control="true"
       >
-        <div className="flex items-center gap-3 rounded-2xl border border-white/15 bg-black/45 px-4 py-3 shadow-premium backdrop-blur-md">
-          <span
-            className="h-3 w-3 rounded-full"
-            aria-hidden
-            style={{
-              background: `linear-gradient(135deg, ${elementColor.primary}, ${elementColor.secondary})`,
-            }}
-          />
-          <div>
-            <div className="text-[10px] uppercase tracking-[0.2em] text-white/55">Elemento Atual</div>
-            <div className="text-sm font-semibold text-white">{ELEMENT_LABELS[selectedElement]}</div>
-          </div>
+        <div className="relative">
+          <button
+            type="button"
+            aria-expanded={elementPickerOpen}
+            aria-label="Selecionar elemento"
+            onClick={() => setElementPickerOpen((value) => !value)}
+            className="flex items-center gap-3 rounded-2xl border border-white/15 bg-black/45 px-4 py-3 text-left shadow-premium backdrop-blur-md transition hover:bg-black/62 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/80"
+          >
+            <span
+              className="h-3 w-3 rounded-full"
+              aria-hidden
+              style={{
+                background: `linear-gradient(135deg, ${elementColor.primary}, ${elementColor.secondary})`,
+              }}
+            />
+            <div>
+              <div className="text-[10px] uppercase tracking-[0.2em] text-white/55">Elemento Atual</div>
+              <div className="text-sm font-semibold text-white">
+                {ELEMENT_LABELS[selectedElement]} <span className="text-white/55">v</span>
+              </div>
+            </div>
+          </button>
+
+          {elementPickerOpen ? (
+            <div className="absolute left-0 top-[calc(100%+0.5rem)] z-50 grid w-56 grid-cols-2 gap-2 rounded-xl border border-white/15 bg-black/75 p-2 shadow-premium backdrop-blur-md">
+              {ELEMENT_ORDER.map((element) => {
+                const color = ELEMENT_COLORS[element]
+                const active = element === selectedElement
+                return (
+                  <button
+                    key={element}
+                    type="button"
+                    onClick={() => {
+                      onSelectElement(element)
+                      setElementPickerOpen(false)
+                    }}
+                    className={`rounded-lg border px-2 py-2 text-left text-xs font-medium transition ${
+                      active
+                        ? 'border-cyan-300/55 bg-cyan-400/20 text-cyan-100'
+                        : 'border-white/20 bg-black/35 text-white/85 hover:bg-black/55'
+                    }`}
+                    style={{
+                      boxShadow: active ? `0 0 24px ${color.primary}66` : 'none',
+                    }}
+                  >
+                    <span
+                      className="mr-2 inline-block h-2.5 w-2.5 rounded-full align-middle"
+                      style={{
+                        background: `linear-gradient(135deg, ${color.primary}, ${color.secondary})`,
+                      }}
+                    />
+                    {ELEMENT_LABELS[element]}
+                  </button>
+                )
+              })}
+            </div>
+          ) : null}
         </div>
 
         <div className="flex flex-wrap items-center justify-end gap-2">
